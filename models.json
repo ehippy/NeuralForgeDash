@@ -1,0 +1,32 @@
+{
+  "defaults": {
+    "port": 8081,
+    "gpuLayers": 999,
+    "parallel": 2,
+    "contBatching": true,
+    "noMmap": true,
+    "noWarmup": true,
+    "metrics": true,
+    "host": "0.0.0.0"
+  },
+  "aliases": {
+    "coder": {
+      "name": "Qwen3-Coder-Next Q8",
+      "model": "~/models/Qwen3-Coder-Next/Q8_0/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf",
+      "ctx": 131072,
+      "parallel": 2
+    },
+    "qwen9b": {
+      "name": "Qwen3.5-9B Q4_K_M",
+      "model": "~/models/Qwen3.5-9B/Qwen3.5-9B-Q4_K_M.gguf",
+      "ctx": 65536,
+      "parallel": 4
+    },
+    "qwen35": {
+      "name": "Qwen3.5-35B-A3B Q8",
+      "model": "~/models/Qwen3.5-35B-A3B/Q8_0/Qwen3.5-35B-A3B-Q8_0.gguf",
+      "ctx": 131072,
+      "parallel": 2
+    }
+  }
+}
