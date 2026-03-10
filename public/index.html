@@ -37,6 +37,16 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .logo {
     display: flex;
     align-items: center;
@@ -61,6 +71,7 @@
   .status-badge.running { border-color: var(--teal); color: var(--teal); }
   .status-badge.stopped { border-color: var(--text-dim); color: var(--text-dim); }
   .status-badge.switching { border-color: var(--amber); color: var(--amber); }
+  .header-actions .btn { padding: 5px 12px; font-size: 11px; }
   .dot {
     width: 7px; height: 7px;
     border-radius: 50%;
@@ -70,7 +81,7 @@
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
   /* Main grid */
-  main { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+  main { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; height: 100%; max-height: 100vh; }
 
   /* Cards */
   .card {
@@ -156,12 +167,22 @@
   .discovered-section { margin-top: 12px; }
   .discovered-title { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
 
+  /* Uptime */
+  .uptime { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+
   /* Log panel */
+  .log-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
   .log-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
+    flex-shrink: 0;
   }
   .log-toggle {
     background: none;
@@ -181,23 +202,17 @@
     line-height: 1.6;
     color: #9aaab0;
     overflow-y: auto;
-    transition: height 0.3s ease;
-    height: 180px;
+    flex: 1;
+    min-height: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
   }
-  .log-body.collapsed { height: 0; overflow: hidden; border: none; }
+  .log-body.collapsed { opacity: 0; transform: scaleY(0); pointer-events: none; }
   .log-inner { padding: 10px 12px; }
   .log-line { white-space: pre-wrap; word-break: break-all; }
   .log-line.warn { color: var(--amber); }
   .log-line.err { color: var(--red); }
   .log-line.info { color: var(--teal); }
 
-  /* Action bar */
-  .action-bar {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
   .btn {
     padding: 7px 16px;
     border-radius: 5px;
@@ -235,9 +250,6 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Uptime */
-  .uptime { color: var(--text-dim); font-size: 11px; margin-left: auto; }
-
   /* Confirm overlay */
   .overlay {
     display: none;
@@ -263,6 +275,11 @@
   .btn-cancel { background: var(--surface2); color: var(--text-dim); }
   .btn-confirm { background: rgba(0,212,170,0.15); border-color: var(--teal); color: var(--teal); }
   .btn-confirm:hover { background: rgba(0,212,170,0.25); }
+
+  @media (max-width: 800px) {
+    .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+    .header-actions .btn { width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -275,9 +292,16 @@
     </svg>
     NeuralForge
   </div>
-  <div class="status-badge stopped" id="statusBadge">
-    <div class="dot" id="statusDot"></div>
-    <span id="statusText">CONNECTING...</span>
+  <div class="header-controls">
+    <div class="status-badge stopped" id="statusBadge">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">CONNECTING...</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-stop" id="stopBtn" onclick="stopModel()" disabled>■ Stop</button>
+      <a class="btn btn-link" href="http://localhost:3000" target="_blank">Open WebUI ↗</a>
+      <a class="btn btn-link" href="http://localhost:8081/docs" target="_blank">API Docs ↗</a>
+    </div>
   </div>
 </header>
 
@@ -346,6 +370,41 @@
         <span class="stat-value" id="modelPid">—</span>
       </div>
     </div>
+
+    <!-- Ready to Work card -->
+    <div class="card" id="readyCard">
+      <div class="card-title">READY TO WORK</div>
+      <div style="font-size:11px;line-height:1.8;color:var(--text-dim)">
+        <div style="margin-bottom:6px">Model loaded: <span class="stat-value" id="readyModel">—</span></div>
+        <div style="margin-bottom:6px">Context size: <span class="stat-value" id="readyCtx">—</span></div>
+        <div style="margin-bottom:6px">GPU layers: <span class="stat-value" id="readyGpuLayers">—</span></div>
+        <div style="margin-bottom:6px">Parallel: <span class="stat-value" id="readyParallel">—</span></div>
+        <div style="margin-bottom:6px">Server: <span class="stat-value" id="readyServer">http://localhost:8081</span></div>
+        <div style="margin-bottom:6px">Open WebUI: <a href="http://localhost:3000" style="color:var(--teal);text-decoration:none">http://localhost:3000</a></div>
+        <div>API Docs: <a href="http://localhost:8081/docs" style="color:var(--teal);text-decoration:none">http://localhost:8081/docs</a></div>
+
+<pre>
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "neuralforge": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "NeuralForge (local)",
+      "options": {
+        "baseURL": "http://neuralforge:8081/v1"
+      },
+      "models": {
+        "Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf": {
+          "name": "Qwen3-Coder-Next (local)"
+        }
+      }
+    }
+  },
+  "model": "neuralforge/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf"
+}
+</pre>
+      </div>
+    </div>
   </div>
 
   <!-- Model switcher -->
@@ -361,7 +420,7 @@
   </div>
 
   <!-- Log panel -->
-  <div class="card">
+  <div class="card log-panel">
     <div class="log-header">
       <div class="card-title" style="margin:0">Server Log</div>
       <button class="log-toggle" id="logToggle" onclick="toggleLog()">▲ collapse</button>
@@ -371,15 +430,7 @@
     </div>
   </div>
 
-  <!-- Action bar -->
-  <div class="card" style="padding: 12px 16px;">
-    <div class="action-bar">
-      <button class="btn btn-stop" id="stopBtn" onclick="stopModel()" disabled>■ Stop</button>
-      <a class="btn btn-link" href="http://localhost:3000" target="_blank">Open WebUI ↗</a>
-      <a class="btn btn-link" href="http://localhost:8081/docs" target="_blank">API Docs ↗</a>
-      <span class="uptime" id="uptimeDisplay"></span>
-    </div>
-  </div>
+  <!-- Log panel -->
 </main>
 
 <!-- Confirm dialog -->
@@ -404,8 +455,10 @@ let state = {
 };
 let models = { aliases: {}, discovered: [] };
 let pendingAlias = null;
-let logExpanded = true;
+let lastAlias = null;
 let uptimeTimer = null;
+let logExpanded = true;
+const MAX_LOG_LINES = 1000;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -430,14 +483,54 @@ async function refresh() {
     const gpu = await gpuR.json();
     updateStatus(status);
     updateGpu(gpu);
+    updateReady(status);
   } catch {}
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+function renderLogs(lines) {
+  const inner = document.getElementById('logInner');
+  inner.innerHTML = lines.map(line => {
+    let cls = 'log-line';
+    if (/error|fail|fatal/i.test(line)) cls += ' err';
+    else if (/warn/i.test(line)) cls += ' warn';
+    else if (/neuralforge|listen|ready|done/i.test(line)) cls += ' info';
+    return `<div class="${cls}">${escHtml(line)}</div>`;
+  }).join('');
+  const body = document.getElementById('logBody');
+  body.scrollTop = body.scrollHeight;
+}
+
+function appendLogs(lines) {
+  const inner = document.getElementById('logInner');
+  const frag = document.createDocumentFragment();
+  for (const line of lines) {
+    let cls = 'log-line';
+    if (/error|fail|fatal/i.test(line)) cls += ' err';
+    else if (/warn/i.test(line)) cls += ' warn';
+    else if (/neuralforge|listen|ready|done/i.test(line)) cls += ' info';
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = line;
+    frag.appendChild(div);
+  }
+  inner.appendChild(frag);
+  const body = document.getElementById('logBody');
+  body.scrollTop = body.scrollHeight;
+  if (inner.querySelectorAll('.log-line').length > MAX_LOG_LINES) {
+    const allLines = inner.querySelectorAll('.log-line');
+    const toRemove = allLines.length - MAX_LOG_LINES;
+    for (let i = 0; i < toRemove; i++) {
+      inner.removeChild(allLines[i]);
+    }
+  }
 }
 
 async function loadLogs() {
   try {
     const r = await fetch('/api/logs');
-    const { lines } = await r.json();
-    renderLogs(lines);
+    const data = await r.json();
+    renderLogs(data.lines);
   } catch {}
 }
 
@@ -458,6 +551,7 @@ function connectSSE() {
       refresh();
       loadLogs();
       loadModels();
+      updateReady(state);
     }
   };
   es.onerror = () => setTimeout(connectSSE, 5000);
@@ -481,6 +575,7 @@ function updateStatus(s) {
   } else if (s.running) {
     badge.classList.add('running');
     text.textContent = `● ${s.model || 'RUNNING'}`;
+    lastAlias = s.alias;
   } else {
     badge.classList.add('stopped');
     text.textContent = 'STOPPED';
@@ -491,6 +586,15 @@ function updateStatus(s) {
   document.getElementById('modelUptime').textContent = s.running ? fmtUptime(s.uptime) : '—';
 
   document.getElementById('stopBtn').disabled = !s.running || s.switching;
+  
+  if (!s.running && !s.switching && lastAlias && models.aliases[lastAlias]) {
+    const grid = document.getElementById('aliasGrid');
+    const btn = Array.from(grid.querySelectorAll('.model-btn')).find(b => b.dataset.alias === lastAlias);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span class="alias-dot"></span>▶ Start ${lastAlias} <span style="color:var(--text-dim);font-size:10px;margin-left:4px">${models.aliases[lastAlias].name}</span>`;
+    }
+  }
 
   // Start local uptime ticker
   if (s.running && !uptimeTimer) {
@@ -541,6 +645,22 @@ function updateMetrics(m) {
   document.getElementById('modelProcessing').textContent = m.processing != null ? m.processing : '—';
 }
 
+function updateReady(status) {
+  const alias = status.alias;
+  if (alias && models.aliases[alias]) {
+    const cfg = models.aliases[alias];
+    document.getElementById('readyModel').textContent = cfg.name;
+    document.getElementById('readyCtx').textContent = cfg.ctx || '32768';
+    document.getElementById('readyGpuLayers').textContent = cfg.gpuLayers ?? 'auto';
+    document.getElementById('readyParallel').textContent = cfg.parallel || '2';
+  } else {
+    document.getElementById('readyModel').textContent = '—';
+    document.getElementById('readyCtx').textContent = '—';
+    document.getElementById('readyGpuLayers').textContent = '—';
+    document.getElementById('readyParallel').textContent = '—';
+  }
+}
+
 function setSwitching(on, alias) {
   state.switching = on;
   const allBtns = document.querySelectorAll('.model-btn');
@@ -587,21 +707,32 @@ function renderModelButtons() {
 
 function updateModelButtonStates(currentAlias) {
   document.querySelectorAll('.model-btn[data-alias]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.alias === currentAlias);
+    const alias = btn.dataset.alias;
+    const isActive = alias === currentAlias;
+    btn.classList.toggle('active', isActive);
     btn.disabled = state.switching;
+    if (!state.running && !state.switching && alias === lastAlias && models.aliases[lastAlias]) {
+      btn.innerHTML = `<span class="alias-dot"></span>▶ Start ${alias} <span style="color:var(--text-dim);font-size:10px;margin-left:4px">${models.aliases[alias].name}</span>`;
+    } else if (isActive) {
+      btn.innerHTML = `<span class="alias-dot"></span>${alias} <span style="color:var(--text-dim);font-size:10px;margin-left:4px">${models.aliases[alias].name}</span>`;
+    }
   });
+  updateReady(state);
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 function confirmSwitch(alias, name) {
   if (state.switching) return;
-  if (alias === state.alias && state.running) return; // already running this
+  if (alias === state.alias && state.running) return;
 
   pendingAlias = alias;
+  const isRestart = !state.running && alias === lastAlias;
   document.getElementById('confirmText').textContent =
     state.running
       ? `Stop current model and load "${name}"? (~30s downtime)`
-      : `Load "${name}"?`;
+      : isRestart
+        ? `Start "${name}" again?`
+        : `Load "${name}"?`;
   document.getElementById('confirmBtn').onclick = doSwitch;
   document.getElementById('confirmOverlay').classList.add('show');
 }
@@ -632,25 +763,7 @@ function closeConfirm() {
   document.getElementById('confirmOverlay').classList.remove('show');
 }
 
-// ── Logs ──────────────────────────────────────────────────────────────────────
-function renderLogs(lines) {
-  const inner = document.getElementById('logInner');
-  inner.innerHTML = lines.map(line => {
-    let cls = 'log-line';
-    if (/error|fail|fatal/i.test(line)) cls += ' err';
-    else if (/warn/i.test(line)) cls += ' warn';
-    else if (/neuralforge|listen|ready|done/i.test(line)) cls += ' info';
-    return `<div class="${cls}">${escHtml(line)}</div>`;
-  }).join('');
-  const body = document.getElementById('logBody');
-  body.scrollTop = body.scrollHeight;
-}
 
-function toggleLog() {
-  logExpanded = !logExpanded;
-  document.getElementById('logBody').classList.toggle('collapsed', !logExpanded);
-  document.getElementById('logToggle').textContent = logExpanded ? '▲ collapse' : '▼ expand';
-}
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function fmtUptime(s) {

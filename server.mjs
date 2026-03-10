@@ -1,11 +1,32 @@
 import { createServer } from 'http';
-import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { spawn } from 'child_process';
+import { readFileSync, existsSync, readdirSync, statSync, unlinkSync } from 'fs';
+import { spawn, exec } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFile } from 'fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+async function killOrphans() {
+  try {
+    const { stdout } = await new Promise((resolve, reject) => {
+      exec('pgrep -fa llama-server', (err, stdout) => {
+        if (err && err.code !== 1) return reject(err);
+        resolve({ stdout: stdout || '' });
+      });
+    });
+    const lines = stdout.trim().split('\n').filter(Boolean);
+    for (const line of lines) {
+      const pid = line.trim().split(' ')[0];
+      if (pid && parseInt(pid) !== process.pid) {
+        console.log(`[neuralforge] Killing orphan process: ${pid}`);
+        try { process.kill(parseInt(pid), 'SIGKILL'); } catch {}
+      }
+    }
+  } catch (e) {
+    console.log('[neuralforge] Orphan check failed:', e.message);
+  }
+}
 
 const PORT = parseInt(process.env.PORT || '5757');
 const MODELS_DIR = process.env.MODELS_DIR || join(process.env.HOME, 'models');
@@ -44,6 +65,7 @@ class LlamaManager {
     if (!aliasConfig) throw new Error(`Unknown alias: ${alias}`);
 
     if (this.proc) await this.stop();
+    await killOrphans();
 
     const d = config.defaults;
     const modelPath = aliasConfig.model.replace('~', process.env.HOME);
@@ -64,6 +86,7 @@ class LlamaManager {
     if (d.noMmap) args.push('--no-mmap');
     if (d.noWarmup) args.push('--no-warmup');
     if (d.metrics) args.push('--metrics');
+    if (d.ubatchSize) args.push('--ubatch-size', String(d.ubatchSize));
 
     const env = { ...process.env, LD_LIBRARY_PATH: `${process.env.HOME}/.local/bin:${process.env.LD_LIBRARY_PATH || ''}` };
 
@@ -101,7 +124,6 @@ class LlamaManager {
   async stop() {
     if (!this.proc) return;
     const proc = this.proc;
-    this.proc = null;
     this.alias = null;
     this.modelName = null;
     this.startTime = null;
@@ -109,8 +131,18 @@ class LlamaManager {
     proc.kill('SIGTERM');
     await new Promise(resolve => {
       const t = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} resolve(); }, 8000);
-      proc.on('exit', () => { clearTimeout(t); resolve(); });
+      proc.on('exit', () => { 
+        clearTimeout(t);
+        if (this.proc === proc) {
+          this.proc = null;
+          this.alias = null;
+          this.modelName = null;
+          this.startTime = null;
+        }
+        resolve(); 
+      });
     });
+    this.proc = null;
     await waitPortFree(LLAMA_PORT, 10000);
   }
 
@@ -377,6 +409,7 @@ setInterval(async () => {
 // Startup
 server.listen(PORT, async () => {
   console.log(`[neuralforge] Listening on port ${PORT}`);
+  await killOrphans();
   if (AUTOSTART_ALIAS) {
     console.log(`[neuralforge] Autostarting: ${AUTOSTART_ALIAS}`);
     setTimeout(() => manager.start(AUTOSTART_ALIAS).catch(console.error), 3000);
