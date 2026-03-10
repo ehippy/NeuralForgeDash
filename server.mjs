@@ -41,12 +41,19 @@ class LogBuffer {
   constructor(size = 100) {
     this.size = size;
     this.lines = [];
+    this.lastIndex = 0;
   }
   push(line) {
     this.lines.push(line);
     if (this.lines.length > this.size) this.lines.shift();
+    else this.lastIndex = this.lines.length;
   }
   get() { return this.lines; }
+  getNew() {
+    const newLines = this.lines.slice(this.lastIndex);
+    this.lastIndex = this.lines.length;
+    return newLines;
+  }
 }
 
 // ── LlamaManager ──────────────────────────────────────────────────────────────
@@ -325,16 +332,37 @@ const server = createServer(async (req, res) => {
     if (!st.running && !st.switching) {
       llamaHealth = await checkHealth();
       if (llamaHealth) {
-        // Update manager state to reflect running instance
-        manager.proc = { pid: 'detected' };
-        manager.startTime = Date.now();
-        manager.alias = 'unknown';
-        manager.modelName = 'unknown';
+        try {
+          const { stdout } = await new Promise((resolve, reject) => {
+            exec('pgrep -fa llama-server', (err, stdout) => {
+              if (err) reject(err);
+              resolve({ stdout: stdout || '' });
+            });
+          });
+          const lines = stdout.trim().split('\n').filter(Boolean);
+          const myPid = process.pid;
+          for (const line of lines) {
+            const [pid, ...args] = line.trim().split(' ');
+            if (parseInt(pid) !== myPid && args.join(' ').includes('--port ' + LLAMA_PORT)) {
+              manager.proc = { pid: parseInt(pid) };
+              manager.startTime = Date.now();
+              manager.alias = 'unknown';
+              manager.modelName = 'unknown';
+              for (const arg of args) {
+                if (arg.endsWith('.gguf')) {
+                  manager.modelName = arg.split('/').pop().replace('.gguf', '');
+                  break;
+                }
+              }
+              break;
+            }
+          }
+        } catch {}
         st.running = true;
-        st.pid = 'detected';
+        st.pid = manager.proc?.pid || 'detected';
         st.uptime = 0;
-        st.alias = 'unknown';
-        st.model = 'unknown';
+        st.alias = manager.alias;
+        st.model = manager.modelName;
       }
     }
     json(res, { ...st, healthy: llamaHealth });
@@ -419,7 +447,8 @@ function error(res, code, msg) {
 setInterval(async () => {
   if (sseClients.size === 0) return;
   const [gpu, status, metrics] = await Promise.all([getGpuStats(), Promise.resolve(manager.status()), getLlamaMetrics()]);
-  broadcastSSE({ type: 'update', gpu, status, metrics });
+  const newLogs = manager.logs.getNew();
+  broadcastSSE({ type: 'update', gpu, status, metrics, logs: newLogs });
 }, 2000);
 
 // Startup

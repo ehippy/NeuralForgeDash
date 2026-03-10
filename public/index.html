@@ -7,77 +7,40 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
   body { background-color: #0d0d0f; color: #e8e8f0; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 13px; }
-  .bg-custom { background-color: #141418; }
-  .border-custom { border-color: #2a2a35 !important; }
   .text-teal { color: #00d4aa !important; }
   .text-teal-dim { color: #888899 !important; }
-  .text-amber { color: #ffa502 !important; }
-  .text-red { color: #ff4757 !important; }
-  .text-green { color: #2ed573 !important; }
-  .bg-teal-10 { background-color: rgba(0,212,170,0.1) !important; }
-  .bg-amber-10 { background-color: rgba(255,165,2,0.1) !important; }
-  .bg-red-10 { background-color: rgba(255,71,87,0.12) !important; }
-  .rounded-4 { border-radius: 8px !important; }
-  .rounded-3 { border-radius: 5px !important; }
   .font-10 { font-size: 10px; }
   .font-11 { font-size: 11px; }
   .font-12 { font-size: 12px; }
   .font-14 { font-size: 14px; }
   .letter-spacing { letter-spacing: 0.15em; text-transform: uppercase; }
-  .card-custom { background-color: #141418; border: 1px solid #2a2a35; border-radius: 8px; padding: 14px 16px; }
-  .log-body { background-color: #0d0d0f; border: 1px solid #2a2a35; border-radius: 4px; overflow-y: auto; font-size: 11px; line-height: 1.6; color: #9aaab0; }
+  .log-body { overflow-y: auto; font-size: 11px; line-height: 1.6; }
   .log-body.collapsed { opacity: 0; transform: scaleY(0); pointer-events: none; }
   .log-line { white-space: pre-wrap; word-break: break-all; }
   .log-line.info { color: #00d4aa; }
   .log-line.warn { color: #ffa502; }
   .log-line.err { color: #ff4757; }
-  .status-badge { padding: 5px 12px; border-radius: 4px; border: 1px solid #2a2a35; font-size: 12px; background-color: #1c1c22; transition: all 0.3s; }
-  .status-badge.running { border-color: #00d4aa; color: #00d4aa; }
-  .status-badge.stopped { border-color: #888899; color: #888899; }
-  .status-badge.switching { border-color: #ffa502; color: #ffa502; }
-  .model-btn { padding: 7px 14px; border-radius: 5px; border: 1px solid #2a2a35; background-color: #1c1c22; color: #e8e8f0; font-family: inherit; font-size: 12px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
-  .model-btn:hover { border-color: #00d4aa; color: #00d4aa; }
-  .model-btn.active { border-color: #00d4aa; background-color: rgba(0,212,170,0.1); color: #00d4aa; }
-  .model-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .alias-dot { width: 6px; height: 6px; border-radius: 50%; background-color: #00d4aa; display: none; }
-  .model-btn.active .alias-dot { display: block; }
-  .btn-link-custom { background-color: #1c1c22; color: #888899; border: 1px solid #2a2a35; }
-  .btn-link-custom:hover { color: #00d4aa; border-color: #00d4aa; }
-  .btn-stop { background-color: rgba(255,71,87,0.12); border-color: #ff4757; color: #ff4757; }
-  .btn-stop:hover { background-color: rgba(255,71,87,0.25); }
-  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(0,212,170,0.3); border-top-color: #00d4aa; border-radius: 50%; animation: spin 0.7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .pulse { animation: pulse 1.5s ease-in-out infinite; }
-  .bar-track { height: 6px; background-color: #1c1c22; border-radius: 3px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.8s ease, background 0.5s ease; }
-  .bar-fill.green { background-color: #2ed573; }
-  .bar-fill.amber { background-color: #ffa502; }
-  .bar-fill.red { background-color: #ff4757; }
-  .bar-fill.teal { background-color: #00d4aa; }
   .overlay { display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
-  .overlay.show { display: flex; }
   .dialog { background-color: #141418; border: 1px solid #2a2a35; border-radius: 10px; padding: 24px; max-width: 340px; width: 90%; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background-color: currentColor; }
 </style>
 </head>
 <body>
 
-<header class="bg-custom border-custom border-bottom d-flex align-items-center justify-content-between px-3 py-2">
+<header class="bg-dark border-secondary border-bottom d-flex align-items-center justify-content-between px-3 py-2">
   <div class="d-flex align-items-center gap-2">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:22px;height:22px;color:#00d4aa">
       <polygon points="12,2 22,7 22,17 12,22 2,17 2,7"/>
       <circle cx="12" cy="12" r="3"/>
     </svg>
-    <span style="font-size:16px;font-weight:700;letter-spacing:0.05em;color:#00d4aa">NeuralForge</span>
+    <span class="text-teal fw-bold" style="font-size:16px;letter-spacing:0.05em">NeuralForge</span>
   </div>
   <div class="d-flex align-items-center gap-3">
-    <div class="status-badge stopped" id="statusBadge">
+    <div class="badge" id="statusBadge">
       <div class="dot me-2" id="statusDot"></div>
       <span id="statusText">CONNECTING...</span>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-stop btn-sm" id="stopBtn" onclick="stopModel()" disabled>Stop</button>
+      <button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopModel()" disabled>Stop</button>
       <a class="btn btn-outline-secondary btn-sm" href="http://localhost:3000" target="_blank">Open WebUI</a>
       <a class="btn btn-outline-secondary btn-sm" href="http://localhost:8081/docs" target="_blank">API Docs</a>
     </div>
@@ -85,85 +48,85 @@
 </header>
 
 <main class="container-fluid px-4 py-3 d-flex flex-column gap-3" style="max-height:100vh">
-  <div class="card-custom">
-    <div class="font-10 letter-spacing text-teal-dim mb-3">Switch Model</div>
+  <div class="bg-dark border border-secondary rounded-3 p-3">
+    <div class="font-10 letter-spacing text-secondary mb-3">Switch Model</div>
     <div class="d-flex flex-wrap gap-2" id="aliasGrid"></div>
     <div class="mt-3" id="discoveredSection" style="display:none">
-      <div class="font-10 text-teal-dim mb-2">Discovered</div>
+      <div class="font-10 text-secondary mb-2">Discovered</div>
       <div class="d-flex flex-wrap gap-2" id="discoveredGrid"></div>
     </div>
   </div>
 
   <div class="row g-3">
     <div class="col-12 col-lg-4">
-      <div class="card-custom">
-        <div class="font-10 letter-spacing text-teal-dim mb-3">GPU</div>
+      <div class="bg-dark border border-secondary rounded-3 p-3">
+        <div class="font-10 letter-spacing text-secondary mb-3">GPU</div>
         <div class="mb-3">
           <div class="d-flex justify-content-between font-11 mb-1">
-            <span class="text-teal-dim">Busy</span>
+            <span class="text-secondary">Busy</span>
             <span class="font-11" id="gpuBusyVal">—</span>
           </div>
-          <div class="bar-track"><div class="bar-fill" id="gpuBusyBar" style="width:0%"></div></div>
+          <div class="progress mb-2"><div class="progress-bar" id="gpuBusyBar" role="progressbar" style="width:0%"></div></div>
         </div>
         <div class="mb-3">
           <div class="d-flex justify-content-between font-11 mb-1">
-            <span class="text-teal-dim">GTT Memory</span>
+            <span class="text-secondary">GTT Memory</span>
             <span class="font-11" id="gttVal">—</span>
           </div>
-          <div class="bar-track"><div class="bar-fill teal" id="gttBar" style="width:0%"></div></div>
+          <div class="progress mb-2"><div class="progress-bar bg-success" id="gttBar" role="progressbar" style="width:0%"></div></div>
         </div>
         <div class="mb-3">
           <div class="d-flex justify-content-between font-11 mb-1">
-            <span class="text-teal-dim">VRAM</span>
+            <span class="text-secondary">VRAM</span>
             <span class="font-11" id="vramVal">—</span>
           </div>
-          <div class="bar-track"><div class="bar-fill" id="vramBar" style="width:0%"></div></div>
+          <div class="progress mb-2"><div class="progress-bar" id="vramBar" role="progressbar" style="width:0%"></div></div>
         </div>
         <div class="d-flex justify-content-between font-11 mb-1">
-          <span class="text-teal-dim">Clock</span>
+          <span class="text-secondary">Clock</span>
           <span class="font-11" id="gpuClock">—</span>
         </div>
         <div class="d-flex justify-content-between font-11">
-          <span class="text-teal-dim">CPU Temp</span>
+          <span class="text-secondary">CPU Temp</span>
           <span class="font-11" id="cpuTemp">—</span>
         </div>
       </div>
     </div>
 
     <div class="col-12 col-lg-4">
-      <div class="card-custom">
-        <div class="font-10 letter-spacing text-teal-dim mb-3">MODEL</div>
+      <div class="bg-dark border border-secondary rounded-3 p-3">
+        <div class="font-10 letter-spacing text-secondary mb-3">MODEL</div>
         <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-teal-dim">Name</span>
+          <span class="text-secondary">Name</span>
           <span class="font-11 text-teal" id="modelName">—</span>
         </div>
         <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-teal-dim">Port</span>
+          <span class="text-secondary">Port</span>
           <span class="font-11">8081</span>
         </div>
         <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-teal-dim">Uptime</span>
+          <span class="text-secondary">Uptime</span>
           <span class="font-11" id="modelUptime">—</span>
         </div>
         <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-teal-dim">Throughput</span>
+          <span class="text-secondary">Throughput</span>
           <span class="font-11" id="modelTps">—</span>
         </div>
         <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-teal-dim">Active reqs</span>
+          <span class="text-secondary">Active reqs</span>
           <span class="font-11" id="modelProcessing">—</span>
         </div>
         <div class="d-flex justify-content-between font-11">
-          <span class="text-teal-dim">PID</span>
+          <span class="text-secondary">PID</span>
           <span class="font-11" id="modelPid">—</span>
         </div>
       </div>
     </div>
 
     <div class="col-12 col-lg-4">
-      <div class="card-custom">
-        <div class="font-10 letter-spacing text-teal-dim mb-3">READY TO WORK</div>
-        <div class="font-11 line-height-1-8 text-teal-dim">
+      <div class="bg-dark border border-secondary rounded-3 p-3">
+        <div class="font-10 letter-spacing text-secondary mb-3">READY TO WORK</div>
+        <div class="font-11 text-secondary">
           <div class="mb-2">Model loaded: <span class="font-11" id="readyModel">—</span></div>
           <div class="mb-2">Context size: <span class="font-11" id="readyCtx">—</span></div>
           <div class="mb-2">GPU layers: <span class="font-11" id="readyGpuLayers">—</span></div>
@@ -176,13 +139,13 @@
     </div>
   </div>
 
-  <div class="card-custom log-panel flex-shrink-0" style="flex:1;min-height:0;display:flex;flex-direction:column">
+  <div class="bg-dark border border-secondary rounded-3 p-3 log-panel flex-shrink-0" style="flex:1;min-height:0;display:flex;flex-direction:column">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <div class="font-10 letter-spacing text-teal-dim mb-0">Server Log</div>
-      <button class="btn btn-link-custom" onclick="toggleLog()" style="padding:2px 6px;font-size:11px">▲ collapse</button>
+      <div class="font-10 letter-spacing text-secondary mb-0">Server Log</div>
+      <button class="btn btn-link text-secondary" id="logToggle" onclick="toggleLog()" style="font-size:11px">▲ collapse</button>
     </div>
-    <div class="log-body" id="logBody">
-      <div class="p-2" id="logInner"></div>
+    <div class="log-body bg-dark border border-secondary rounded p-2" id="logBody">
+      <div id="logInner"></div>
     </div>
   </div>
 </main>
@@ -190,7 +153,7 @@
 <div class="overlay" id="confirmOverlay">
   <div class="dialog">
     <h3 class="font-14 mb-3">Switch Model</h3>
-    <p class="font-12 mb-4 text-teal-dim" id="confirmText">This will stop the current model and load a new one. The server will be unavailable for ~30 seconds.</p>
+    <p class="font-12 mb-4 text-secondary" id="confirmText">This will stop the current model and load a new one. The server will be unavailable for ~30 seconds.</p>
     <div class="d-flex justify-content-end gap-2">
       <button class="btn btn-secondary btn-sm" onclick="closeConfirm()">Cancel</button>
       <button class="btn btn-teal btn-sm" id="confirmBtn">Switch</button>
@@ -211,7 +174,7 @@ let pendingAlias = null;
 let lastAlias = null;
 let uptimeTimer = null;
 let logExpanded = true;
-const MAX_LOG_LINES = 1000;
+const MAX_LOG_LINES = 200;
 
 async function init() {
   await loadModels();
@@ -241,13 +204,19 @@ async function refresh() {
 
 function renderLogs(lines) {
   const inner = document.getElementById('logInner');
-  inner.innerHTML = lines.map(line => {
+  inner.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const line of lines) {
     let cls = 'log-line';
     if (/error|fail|fatal/i.test(line)) cls += ' err';
     else if (/warn/i.test(line)) cls += ' warn';
     else if (/neuralforge|listen|ready|done/i.test(line)) cls += ' info';
-    return `<div class="${cls}">${escHtml(line)}</div>`;
-  }).join('');
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = line;
+    frag.appendChild(div);
+  }
+  inner.appendChild(frag);
   const body = document.getElementById('logBody');
   body.scrollTop = body.scrollHeight;
 }
@@ -268,11 +237,14 @@ function appendLogs(lines) {
   inner.appendChild(frag);
   const body = document.getElementById('logBody');
   body.scrollTop = body.scrollHeight;
-  if (inner.querySelectorAll('.log-line').length > MAX_LOG_LINES) {
-    const allLines = inner.querySelectorAll('.log-line');
-    const toRemove = allLines.length - MAX_LOG_LINES;
+
+  const allLines = inner.children;
+  const toRemove = allLines.length - MAX_LOG_LINES;
+  if (toRemove > 0) {
     for (let i = 0; i < toRemove; i++) {
-      inner.removeChild(allLines[i]);
+      if (allLines[0]) {
+        allLines[0].remove();
+      }
     }
   }
 }
@@ -293,15 +265,15 @@ function connectSSE() {
       updateStatus(data.status);
       updateGpu(data.gpu);
       if (data.metrics) updateMetrics(data.metrics);
-      loadLogs();
+      if (data.logs && data.logs.length > 0) appendLogs(data.logs);
     } else if (data.type === 'switching') {
       setSwitching(true, data.alias);
     } else if (data.type === 'started' || data.type === 'stopped') {
       setSwitching(false);
       refresh();
-      loadLogs();
       loadModels();
       updateReady(state);
+      loadLogs();
     }
   };
   es.onerror = () => setTimeout(connectSSE, 5000);
@@ -314,19 +286,22 @@ function updateStatus(s) {
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
 
-  badge.className = 'status-badge';
+  badge.className = 'badge';
   dot.className = 'dot';
 
   if (s.switching) {
-    badge.classList.add('switching');
+    badge.style.borderColor = '#ffa502';
+    badge.style.color = '#ffa502';
     dot.classList.add('pulse');
     text.textContent = 'SWITCHING...';
   } else if (s.running) {
-    badge.classList.add('running');
+    badge.style.borderColor = '#00d4aa';
+    badge.style.color = '#00d4aa';
     text.textContent = `● ${s.model || 'RUNNING'}`;
     lastAlias = s.alias;
   } else {
-    badge.classList.add('stopped');
+    badge.style.borderColor = '#888899';
+    badge.style.color = '#888899';
     text.textContent = 'STOPPED';
   }
 
@@ -358,6 +333,20 @@ function updateStatus(s) {
   updateModelButtonStates(s.alias);
 }
 
+function setBar(barId, valId, displayVal, suffix, usePctForColor, pctOverride) {
+  const bar = document.getElementById(barId);
+  const val = document.getElementById(valId);
+  if (displayVal == null) { val.textContent = '—'; bar.style.width = '0%'; return; }
+
+  const pct = pctOverride !== undefined ? pctOverride : parseFloat(displayVal);
+  val.textContent = `${displayVal}${suffix}`;
+  bar.style.width = `${Math.min(100, pct)}%`;
+
+  if (usePctForColor || pctOverride !== undefined) {
+    bar.className = 'progress-bar' + (pct >= 85 ? ' bg-danger' : pct >= 60 ? ' bg-warning' : ' bg-success');
+  }
+}
+
 function updateGpu(g) {
   if (!g) return;
 
@@ -371,19 +360,7 @@ function updateGpu(g) {
   document.getElementById('cpuTemp').textContent = g.cpuTempC != null ? `${g.cpuTempC.toFixed(0)}°C` : '—';
 }
 
-function setBar(barId, valId, displayVal, suffix, usePctForColor, pctOverride) {
-  const bar = document.getElementById(barId);
-  const val = document.getElementById(valId);
-  if (displayVal == null) { val.textContent = '—'; bar.style.width = '0%'; return; }
 
-  const pct = pctOverride !== undefined ? pctOverride : parseFloat(displayVal);
-  val.textContent = `${displayVal}${suffix}`;
-  bar.style.width = `${Math.min(100, pct)}%`;
-
-  if (usePctForColor || pctOverride !== undefined) {
-    bar.className = 'bar-fill' + (pct >= 85 ? ' red' : pct >= 60 ? ' amber' : ' green');
-  }
-}
 
 function updateMetrics(m) {
   if (!m) return;
@@ -419,9 +396,9 @@ function renderModelButtons() {
   grid.innerHTML = '';
   for (const [alias, info] of Object.entries(models.aliases)) {
     const btn = document.createElement('button');
-    btn.className = 'model-btn';
+    btn.className = 'btn btn-outline-secondary btn-sm';
     btn.dataset.alias = alias;
-    btn.innerHTML = `<span class="alias-dot"></span>${alias} <span class="font-10 text-teal-dim ms-1">${info.name}</span>`;
+    btn.innerHTML = `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:none"></span>${alias} <span class="font-10 text-secondary ms-1">${info.name}</span>`;
     btn.onclick = () => confirmSwitch(alias, info.name);
     grid.appendChild(btn);
   }
@@ -438,8 +415,8 @@ function renderModelButtons() {
     discGrid.innerHTML = '';
     extra.forEach(m => {
       const btn = document.createElement('button');
-      btn.className = 'model-btn';
-      btn.innerHTML = `<span class="font-10 text-teal-dim">${m.name}</span>`;
+      btn.className = 'btn btn-outline-secondary btn-sm';
+      btn.innerHTML = `<span class="font-10 text-secondary">${m.name}</span>`;
       btn.title = m.path;
       btn.onclick = () => alert('Discovered models: add to models.json aliases to use them.');
       discGrid.appendChild(btn);
@@ -454,12 +431,17 @@ function updateModelButtonStates(currentAlias) {
   document.querySelectorAll('.model-btn[data-alias]').forEach(btn => {
     const alias = btn.dataset.alias;
     const isActive = alias === currentAlias;
-    btn.classList.toggle('active', isActive);
     btn.disabled = state.switching;
-    if (!state.running && !state.switching && alias === lastAlias && models.aliases[lastAlias]) {
-      btn.innerHTML = `<span class="alias-dot"></span><span class="me-1">▶</span> Start ${alias} <span class="font-10 text-teal-dim ms-1">${models.aliases[alias].name}</span>`;
-    } else if (isActive) {
-      btn.innerHTML = `<span class="alias-dot"></span>${alias} <span class="font-10 text-teal-dim ms-1">${models.aliases[alias].name}</span>`;
+    const dot = btn.querySelector('.dot');
+    if (isActive) {
+      dot.style.display = 'block';
+      if (!state.running && !state.switching && alias === lastAlias && models.aliases[lastAlias]) {
+        btn.innerHTML = `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:block"></span><span class="me-1">▶</span> Start ${alias} <span class="font-10 text-secondary ms-1">${models.aliases[alias].name}</span>`;
+      } else {
+        btn.innerHTML = `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:block"></span>${alias} <span class="font-10 text-secondary ms-1">${models.aliases[alias].name}</span>`;
+      }
+    } else {
+      dot.style.display = 'none';
     }
   });
   updateReady(state);
