@@ -321,6 +321,22 @@ const server = createServer(async (req, res) => {
     const st = manager.status();
     let llamaHealth = false;
     if (st.running) llamaHealth = await checkHealth();
+    // Detect if llama-server is running even if not managed by us
+    if (!st.running && !st.switching) {
+      llamaHealth = await checkHealth();
+      if (llamaHealth) {
+        // Update manager state to reflect running instance
+        manager.proc = { pid: 'detected' };
+        manager.startTime = Date.now();
+        manager.alias = 'unknown';
+        manager.modelName = 'unknown';
+        st.running = true;
+        st.pid = 'detected';
+        st.uptime = 0;
+        st.alias = 'unknown';
+        st.model = 'unknown';
+      }
+    }
     json(res, { ...st, healthy: llamaHealth });
     return;
   }
@@ -410,6 +426,28 @@ setInterval(async () => {
 server.listen(PORT, async () => {
   console.log(`[neuralforge] Listening on port ${PORT}`);
   await killOrphans();
+  const health = await checkHealth();
+  if (health) {
+    console.log(`[neuralforge] Detected running llama-server on port ${LLAMA_PORT}`);
+    // Try to detect alias from process args
+    try {
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('pgrep -fa llama-server', (err, stdout) => {
+          if (err) reject(err);
+          resolve({ stdout: stdout || '' });
+        });
+      });
+      const lines = stdout.trim().split('\n').filter(Boolean);
+      const myPid = process.pid;
+      for (const line of lines) {
+        const [pid, ...args] = line.trim().split(' ');
+        if (parseInt(pid) !== myPid && args.join(' ').includes('--port ' + LLAMA_PORT)) {
+          console.log(`[neuralforge] Detected existing llama-server PID ${pid}`);
+          break;
+        }
+      }
+    } catch {}
+  }
   if (AUTOSTART_ALIAS) {
     console.log(`[neuralforge] Autostarting: ${AUTOSTART_ALIAS}`);
     setTimeout(() => manager.start(AUTOSTART_ALIAS).catch(console.error), 3000);
