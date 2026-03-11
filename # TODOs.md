@@ -1,9 +1,7 @@
 # TODOs
-
-- allow it to manage more than one model running at a time, like we want to stack these things up in memory like lego bricks.
 - have it give handy configuration strings/json blobs pre-done for things like
   - openwebui
   - openclaw
   - etc?
-- allow users to tune the model model params in the ui like context size, parallel, etc from the dash
+- allow users to tune the model params in the ui like context size, parallel, etc from the dash. a little edit screen.
 - needs a good base url

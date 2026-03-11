@@ -1,4 +1,4 @@
-import { createServer } from 'http';
+import { createServer, request as httpRequest } from 'http';
 import { readFileSync, existsSync, createWriteStream, writeFileSync } from 'fs';
 import { spawn, exec } from 'child_process';
 import { join, dirname } from 'path';
@@ -851,6 +851,59 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ── OpenAI-compatible proxy (/v1/) ──────────────────────────────────────────
+  // Allows Open WebUI (and any OpenAI client) to talk to NeuralForge on port
+  // 5757 and reach whatever llama-server instances are currently running.
+  if (path.startsWith('/v1/')) {
+    // GET /v1/models — list all currently running instances
+    if (path === '/v1/models' && req.method === 'GET') {
+      const now = Math.floor(Date.now() / 1000);
+      const data = [...managers.entries()]
+        .filter(([, m]) => m.status().running)
+        .map(([alias]) => ({ id: alias, object: 'model', created: now, owned_by: 'neuralforge' }));
+      json(res, { object: 'list', data });
+      return;
+    }
+
+    // GET /v1/models/:id — single model object
+    if (path.startsWith('/v1/models/') && req.method === 'GET') {
+      const modelId = decodeURIComponent(path.slice('/v1/models/'.length));
+      const mgr = managers.get(modelId);
+      if (!mgr?.status().running) { error(res, 404, `model '${modelId}' is not running`); return; }
+      json(res, { id: modelId, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: 'neuralforge' });
+      return;
+    }
+
+    // All other /v1/ routes — buffer body, resolve target instance, proxy
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      const bodyBuf = Buffer.concat(chunks);
+      let targetPort;
+
+      // Try to route by the `model` field in the request body
+      try {
+        const body = JSON.parse(bodyBuf.toString('utf8'));
+        if (body.model) {
+          const mgr = managers.get(body.model);
+          if (mgr?.status().running) targetPort = mgr.status().port;
+        }
+      } catch { /* non-JSON body — fall through to any-running */ }
+
+      // Fall back to the first running instance
+      if (!targetPort) {
+        for (const [, m] of managers) {
+          const st = m.status();
+          if (st.running) { targetPort = st.port; break; }
+        }
+      }
+
+      if (!targetPort) { error(res, 503, 'no model is currently running'); return; }
+      proxyToLlama(req, res, bodyBuf, targetPort);
+    });
+    return;
+  }
+
   // Silence the browser's automatic favicon.ico request (we use a dynamic canvas favicon)
   if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
 
@@ -877,6 +930,28 @@ function json(res, data) {
 function error(res, code, msg) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: msg }));
+}
+
+// Proxy a buffered request to a llama-server instance, preserving streaming.
+function proxyToLlama(req, res, bodyBuf, port) {
+  const opts = {
+    hostname: '127.0.0.1',
+    port,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, host: `127.0.0.1:${port}` },
+  };
+  if (bodyBuf.length > 0) opts.headers['content-length'] = bodyBuf.length;
+  const proxy = httpRequest(opts, (upstream) => {
+    res.writeHead(upstream.statusCode, upstream.headers);
+    upstream.pipe(res);
+  });
+  proxy.on('error', (e) => {
+    if (!res.headersSent) error(res, 502, `upstream error: ${e.message}`);
+    else res.end();
+  });
+  if (bodyBuf.length > 0) proxy.write(bodyBuf);
+  proxy.end();
 }
 
 // SSE broadcast loop

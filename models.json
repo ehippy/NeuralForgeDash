@@ -27,6 +27,22 @@
       "hfDownloads": 1173790,
       "hfLastModified": "2026-02-03T16:16:38.000Z",
       "autoLoad": true
+    },
+    "qwen3-5-35b-a3b-q4-k": {
+      "name": "Qwen3.5-35B-A3B-GGUF Q4_K_M",
+      "model": "/home/pmcdavid/models/unsloth--Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf",
+      "ctx": 32768,
+      "parallel": 2,
+      "hfRepoId": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "hfFilename": "Qwen3.5-35B-A3B-Q4_K_M.gguf"
+    },
+    "qwen3-coder-next-q4": {
+      "name": "Qwen3-Coder-Next-GGUF Q4_K_M",
+      "model": "/home/pmcdavid/models/unsloth--Qwen3-Coder-Next-GGUF/Qwen3-Coder-Next-Q4_K_M.gguf",
+      "ctx": 32768,
+      "parallel": 2,
+      "hfRepoId": "unsloth/Qwen3-Coder-Next-GGUF",
+      "hfFilename": "Qwen3-Coder-Next-Q4_K_M.gguf"
     }
   }
 }
