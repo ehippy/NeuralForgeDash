@@ -158,7 +158,6 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('nf', {
     instances: {},
     models: { aliases: {}, discovered: [] },
-    pendingAlias: null,
     hfOpen: false,
     _uptimeTimers: new Map(),
 
@@ -204,14 +203,8 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    confirmStart(alias) {
-      this.pendingAlias = alias;
-    },
-
-    async doStart() {
-      const alias = this.pendingAlias;
-      this.pendingAlias = null;
-      if (!alias) return;
+    async confirmStart(alias, name) {
+      if (!confirm(`Load "${name}"?`)) return;
       this.instances[alias] = { ...(this.instances[alias] || {}), switching: true, alias };
       try {
         await fetch('/api/start', {

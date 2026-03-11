@@ -210,29 +210,6 @@
 
 </main>
 
-<!-- Load confirmation modal (Alpine-driven) -->
-<div x-show="$store.nf.pendingAlias !== null"
-  x-cloak
-  style="position:fixed;inset:0;z-index:1050;display:flex;align-items:center;justify-content:center"
-  @click.self="$store.nf.pendingAlias = null">
-  <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5)"></div>
-  <div class="modal-dialog modal-sm mb-0" style="position:relative;z-index:1">
-    <div class="modal-content bg-dark border-secondary">
-      <div class="modal-header border-secondary py-2">
-        <h6 class="modal-title">Load Model</h6>
-        <button type="button" class="btn-close btn-close-white" @click="$store.nf.pendingAlias = null"></button>
-      </div>
-      <div class="modal-body">
-        <p class="text-secondary small mb-0" x-text="`Load &quot;${$store.nf.models.aliases[$store.nf.pendingAlias]?.name}&quot;?`"></p>
-      </div>
-      <div class="modal-footer border-secondary py-2">
-        <button class="btn btn-secondary btn-sm" @click="$store.nf.pendingAlias = null">Cancel</button>
-        <button class="btn btn-success btn-sm" @click="$store.nf.doStart()">Load</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script src="app.js"></script>
 </body>
 </html>
