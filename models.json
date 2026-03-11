@@ -27,19 +27,6 @@
       "hfDownloads": 1173790,
       "hfLastModified": "2026-02-03T16:16:38.000Z",
       "autoLoad": true
-    },
-    "qwen3-5-35b-a3b-mxfp": {
-      "name": "Qwen3.5-35B-A3B-GGUF",
-      "model": "/home/pmcdavid/models/unsloth--Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-MXFP4_MOE.gguf",
-      "ctx": 32768,
-      "parallel": 2,
-      "port": 8082
-    },
-    "qwen3-5-9b-ud-q6-k-x": {
-      "name": "Qwen3.5-9B-GGUF Q6_K_XL",
-      "model": "/home/pmcdavid/models/unsloth--Qwen3.5-9B-GGUF/Qwen3.5-9B-UD-Q6_K_XL.gguf",
-      "ctx": 32768,
-      "parallel": 2
     }
   }
 }

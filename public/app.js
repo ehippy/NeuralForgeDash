@@ -242,6 +242,21 @@ document.addEventListener('alpine:init', () => {
       } catch { chkEl.checked = !checked; }
     },
 
+    async deleteModel(alias, name) {
+      if (!confirm(`Delete "${name}"?\nThis removes it from models.json AND deletes the file from disk.`)) return;
+      try {
+        const r = await fetch('/api/models/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias }),
+        });
+        const d = await r.json();
+        if (!r.ok) { alert(d.error || 'Delete failed'); return; }
+        const mr = await fetch('/api/models');
+        this.models = await mr.json();
+      } catch (e) { alert(`Delete failed: ${e.message}`); }
+    },
+
     async syncHF(alias, info) {
       let repoId = info.hfRepoId;
       if (!repoId) {

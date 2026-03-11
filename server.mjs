@@ -681,7 +681,7 @@ const server = createServer(async (req, res) => {
           json(res, { repoId, files });
           return;
         }
-        const key = await startDownload(repoId, filename, {});
+        const key = await startDownload(repoId, filename, { hfRepoId: repoId, hfFilename: filename });
         json(res, { ok: true, key, repoId, filename });
       } catch (e) { error(res, 400, e.message); }
     });
@@ -732,6 +732,33 @@ const server = createServer(async (req, res) => {
         }
         writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
         json(res, { ok: true, alias, autoLoad: !!autoLoad });
+      } catch (e) { error(res, 500, e.message); }
+    });
+    return;
+  }
+
+  if (path === '/api/models/delete' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { alias } = JSON.parse(body || '{}');
+        if (!alias) { error(res, 400, 'alias required'); return; }
+        const cfgPath = join(__dirname, 'models.json');
+        const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+        if (!cfg.aliases[alias]) { error(res, 404, 'alias not found'); return; }
+        // Refuse if the model is currently running
+        if (managers.has(alias)) { error(res, 409, 'model is currently running; stop it first'); return; }
+        const modelPath = cfg.aliases[alias].model?.replace(/^~/, process.env.HOME || '');
+        delete cfg.aliases[alias];
+        writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+        if (modelPath) {
+          try { await unlink(modelPath); } catch (e) {
+            // silently ignore if already gone
+            if (e.code !== 'ENOENT') console.warn(`Could not delete model file: ${e.message}`);
+          }
+        }
+        json(res, { ok: true, alias });
       } catch (e) { error(res, 500, e.message); }
     });
     return;
