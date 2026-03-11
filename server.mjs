@@ -375,31 +375,17 @@ function hfParseQuant(filename) {
   return m ? m[1].toUpperCase() : null;
 }
 
-async function hfSearch(query, limit = 20) {
-  const url = `${HF_API}/models?search=${encodeURIComponent(query)}&filter=gguf&limit=${limit}&sort=downloads&direction=-1&full=true`;
-  const res = await fetch(url, { headers: hfHeaders(), signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`HF search failed: ${res.status}`);
-  const list = await res.json();
-  return list.map(m => {
-    // Sum sizes of all GGUF siblings for a "total size" indicator
-    const ggufSiblings = (m.siblings || []).filter(s => s.rfilename.endsWith('.gguf'));
-    const totalGgufBytes = ggufSiblings.reduce((acc, s) => acc + (s.size || 0), 0);
-    // Count distinct quant variants (ignore shard duplicates)
-    const quantSet = new Set(ggufSiblings
-      .filter(s => { const mm = s.rfilename.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/); return !mm || mm[1] === '00001'; })
-      .map(s => hfParseQuant(s.rfilename)).filter(Boolean));
-    return {
-      id: m.id,
-      downloads: m.downloads || 0,
-      likes: m.likes || 0,
-      lastModified: m.lastModified || null,
-      pipeline: m.pipeline_tag || null,
-      arch: hfExtractArch(m.tags || []),
-      caps: hfExtractCaps(m.tags || [], m.id),
-      totalGgufBytes: totalGgufBytes || null,
-      quantVariants: [...quantSet],
-    };
-  });
+// Parse a HuggingFace URL or "owner/repo" into { repoId, filename }
+// Accepts full blob/resolve URLs, owner/repo/file.gguf, or bare owner/repo
+function hfParseUrl(input) {
+  const s = input.trim();
+  const urlMatch = s.match(/huggingface\.co\/([^/]+\/[^/]+?)(?:\/(?:resolve|blob|tree)\/[^/]+(?:\/(.+\.gguf))?)?(?:\?.*)?$/);
+  if (urlMatch) return { repoId: urlMatch[1], filename: urlMatch[2] || null };
+  const slashFile = s.match(/^([^/]+\/[^/]+)\/(.+\.gguf)$/i);
+  if (slashFile) return { repoId: slashFile[1], filename: slashFile[2] };
+  const repoOnly = s.match(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
+  if (repoOnly) return { repoId: s, filename: null };
+  return null;
 }
 
 async function hfRepoFiles(repoId) {
@@ -666,23 +652,41 @@ const server = createServer(async (req, res) => {
   }
 
   // HF Hub routes
-  if (path === '/api/hf/search' && req.method === 'GET') {
-    const q = url.searchParams.get('q') || '';
-    if (!q.trim()) { json(res, { models: [] }); return; }
-    try {
-      const models = await hfSearch(q.trim());
-      json(res, { models });
-    } catch (e) { error(res, 502, e.message); }
+  // /api/hf/add — parse a HF URL/repo, list files or start download
+  if (path === '/api/hf/add' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { input, filename: chosenFile } = JSON.parse(body || '{}');
+        if (!input) { error(res, 400, 'input required'); return; }
+        const parsed = hfParseUrl(input);
+        if (!parsed) { error(res, 400, 'Could not parse HuggingFace URL or repo ID'); return; }
+        const { repoId, filename: parsedFile } = parsed;
+        const filename = chosenFile || parsedFile;
+        if (!filename) {
+          // Repo only — return file list for client to pick from
+          const files = await hfRepoFiles(repoId);
+          json(res, { repoId, files });
+          return;
+        }
+        const key = await startDownload(repoId, filename, {});
+        json(res, { ok: true, key, repoId, filename });
+      } catch (e) { error(res, 400, e.message); }
+    });
     return;
+  }
+
+  if (path === '/api/hf/search' && req.method === 'GET') {
+    json(res, { models: [] }); return;
   }
 
   if (path === '/api/hf/files' && req.method === 'GET') {
     const repo = url.searchParams.get('repo') || '';
     try {
-      validateHFInput(repo, 'dummy.gguf'); // reuse repoId validation
       const files = await hfRepoFiles(repo);
       json(res, { files });
-    } catch (e) { error(res, repo ? 502 : 400, e.message); }
+    } catch (e) { error(res, 502, e.message); }
     return;
   }
 

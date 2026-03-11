@@ -158,7 +158,6 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('nf', {
     instances: {},
     models: { aliases: {}, discovered: [] },
-    hfOpen: false,
     _uptimeTimers: new Map(),
 
     get runningList() {
@@ -264,18 +263,33 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    toggleHF() {
-      this.hfOpen = !this.hfOpen;
-      if (this.hfOpen) {
-        loadHFDownloads();
-        setTimeout(() => {
-          const inp = document.getElementById('hfSearchInput');
-          if (inp) {
-            inp.removeEventListener('input', onHFInput);
-            inp.addEventListener('input', onHFInput);
-            inp.focus();
-          }
-        }, 50);
+    async addFromHF() {
+      const input = prompt('Paste a HuggingFace URL or repo ID (owner/repo):');
+      if (!input || !input.trim()) return;
+      const r = await fetch('/api/hf/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: input.trim() }),
+      });
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || 'Failed'); return; }
+      if (data.files) {
+        // Repo only — show file picker
+        const lines = data.files.map((f, i) => `${i + 1}. ${f.quant || '?'} — ${f.name.split('/').pop()}${f.size ? ' (' + fmtBytes(f.size) + ')' : ''}`);
+        const choice = prompt(`Choose a file from ${data.repoId}:\n\n${lines.join('\n')}\n\nEnter number:`);
+        const idx = parseInt(choice) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= data.files.length) return;
+        const chosen = data.files[idx];
+        const r2 = await fetch('/api/hf/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: input.trim(), filename: chosen.name }),
+        });
+        const d2 = await r2.json();
+        if (!r2.ok) { alert(d2.error || 'Failed'); return; }
+        addHFDownloadRow(d2.key, d2.repoId, d2.filename);
+      } else {
+        addHFDownloadRow(data.key, data.repoId, data.filename);
       }
     },
   });
@@ -341,248 +355,8 @@ async function init() {
 
 document.addEventListener('alpine:initialized', () => { init(); });
 
-// ── HuggingFace Hub ────────────────────────────────────────────────────────────
-let hfSearchTimer = null;
+// ── HuggingFace downloads ─────────────────────────────────────────────────────
 const hfProgressEls = new Map();
-
-function onHFInput(e) {
-  clearTimeout(hfSearchTimer);
-  const q = e.target.value.trim();
-  if (q.length < 2) { document.getElementById('hfResults').innerHTML = ''; return; }
-  hfSearchTimer = setTimeout(() => doHFSearch(q), 420);
-}
-
-async function doHFSearch(q) {
-  const container = document.getElementById('hfResults');
-  container.innerHTML = '<div class="small text-secondary py-1">Searching\u2026</div>';
-  try {
-    const r = await fetch(`/api/hf/search?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    renderHFResults(data.models || []);
-  } catch {
-    container.innerHTML = '<div class="small text-danger">Search failed</div>';
-  }
-}
-
-function renderHFResults(hfModels) {
-  const container = document.getElementById('hfResults');
-  container.innerHTML = '';
-  if (!hfModels.length) {
-    container.innerHTML = '<div class="small text-secondary py-1">No results</div>';
-    return;
-  }
-  hfModels.forEach(m => {
-    const card = document.createElement('div');
-    card.className = 'border border-secondary rounded p-2 mb-1';
-    card.style.fontSize = '11px';
-
-    const [author, repoName] = m.id.includes('/') ? m.id.split('/') : ['', m.id];
-    const header = document.createElement('div');
-    header.className = 'd-flex justify-content-between align-items-start';
-    header.style.cursor = 'pointer';
-    header.style.gap = '8px';
-
-    const nameBlock = document.createElement('div');
-    nameBlock.style.minWidth = '0';
-    const authorEl = document.createElement('div');
-    authorEl.className = 'text-secondary';
-    authorEl.style.fontSize = '10px';
-    authorEl.textContent = author;
-    const nameRow = document.createElement('div');
-    nameRow.className = 'd-flex align-items-center gap-1';
-    const nameEl = document.createElement('div');
-    nameEl.className = 'text-success fw-semibold';
-    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px';
-    nameEl.title = m.id;
-    nameEl.textContent = repoName || m.id;
-    const hfLink = document.createElement('a');
-    hfLink.href = `https://huggingface.co/${m.id}`;
-    hfLink.target = '_blank';
-    hfLink.rel = 'noopener noreferrer';
-    hfLink.title = 'Open on HuggingFace';
-    hfLink.className = 'text-secondary text-decoration-none';
-    hfLink.style.cssText = 'flex-shrink:0;line-height:1';
-    hfLink.textContent = '\u2197';
-    hfLink.addEventListener('click', e => e.stopPropagation());
-    nameRow.appendChild(nameEl);
-    nameRow.appendChild(hfLink);
-    nameBlock.appendChild(authorEl);
-    nameBlock.appendChild(nameRow);
-
-    const statsBlock = document.createElement('div');
-    statsBlock.className = 'd-flex flex-column align-items-end gap-1';
-    statsBlock.style.flexShrink = '0';
-    const dlLikeEl = document.createElement('div');
-    dlLikeEl.className = 'text-secondary';
-    dlLikeEl.style.fontSize = '10px';
-    dlLikeEl.textContent = `\u2193 ${fmtNum(m.downloads ?? 0)}  \u2665 ${fmtNum(m.likes ?? 0)}`;
-    statsBlock.appendChild(dlLikeEl);
-    if (m.totalGgufBytes) {
-      const sizeEl = document.createElement('div');
-      sizeEl.className = 'text-success fw-semibold';
-      sizeEl.style.fontSize = '10px';
-      sizeEl.textContent = fmtBytes(m.totalGgufBytes) + ' total';
-      statsBlock.appendChild(sizeEl);
-    }
-
-    const tagRow = document.createElement('div');
-    tagRow.className = 'd-flex gap-1 flex-wrap mt-1';
-    if (m.arch) tagRow.appendChild(hfBadge(m.arch, 'info'));
-    if (m.pipeline) tagRow.appendChild(hfBadge(m.pipeline.replace(/-/g, ' ').replace('text generation', 'text-gen'), 'secondary'));
-    if (m.lastModified) tagRow.appendChild(hfBadge('updated ' + fmtAge(m.lastModified), 'secondary'));
-    if (m.quantVariants && m.quantVariants.length) {
-      m.quantVariants.slice(0, 4).forEach(q => tagRow.appendChild(hfQuantBadge(q)));
-      if (m.quantVariants.length > 4) tagRow.appendChild(hfBadge(`+${m.quantVariants.length - 4}`, 'secondary'));
-    }
-    if (m.caps && m.caps.length) {
-      m.caps.forEach(cap => tagRow.appendChild(hfBadge(cap, 'primary')));
-    }
-
-    const fileList = document.createElement('div');
-    fileList.style.display = 'none';
-    fileList.style.marginTop = '6px';
-
-    let loaded = false;
-    header.addEventListener('click', async () => {
-      const open = fileList.style.display !== 'none';
-      fileList.style.display = open ? 'none' : 'block';
-      if (!open && !loaded) {
-        loaded = true;
-        fileList.innerHTML = '<div class="small text-secondary">Loading files\u2026</div>';
-        try {
-          const r = await fetch(`/api/hf/files?repo=${encodeURIComponent(m.id)}`);
-          const data = await r.json();
-          renderHFFileList(fileList, m.id, data.files || [], m);
-        } catch {
-          fileList.innerHTML = '<div class="small text-danger">Failed to load files</div>';
-        }
-      }
-    });
-
-    header.appendChild(nameBlock);
-    header.appendChild(statsBlock);
-    card.appendChild(header);
-    card.appendChild(tagRow);
-    card.appendChild(fileList);
-    container.appendChild(card);
-  });
-}
-
-function hfBadge(text, variant) {
-  const s = document.createElement('span');
-  s.className = `badge text-bg-${variant}`;
-  s.style.fontSize = '10px';
-  s.textContent = text;
-  return s;
-}
-
-function hfQuantBadge(q) {
-  const s = document.createElement('span');
-  s.className = 'badge';
-  s.style.cssText = `font-size:10px;background-color:#1a2030;color:${quantColor(q)}`;
-  s.textContent = q;
-  return s;
-}
-
-const QUANT_COLORS = {
-  F32:'#adb5bd', BF16:'#adb5bd', F16:'#adb5bd',
-  Q8_0:'#4dabce', Q6_K:'#4dabce',
-  Q5_K_M:'#20c997', Q5_K_S:'#20c997', Q5_0:'#20c997', Q5_1:'#20c997',
-  Q4_K_M:'#7ecb7e', Q4_K_S:'#7ecb7e', Q4_0:'#7ecb7e', Q4_1:'#7ecb7e',
-  Q3_K_M:'#fd7e14', Q3_K_S:'#fd7e14', Q3_K_L:'#fd7e14',
-  Q2_K:'#dc3545',
-};
-function quantColor(q) {
-  if (!q) return '#6c757d';
-  if (QUANT_COLORS[q]) return QUANT_COLORS[q];
-  if (q.startsWith('IQ')) return '#c084fc';
-  if (q.startsWith('Q8') || q.startsWith('Q6')) return '#4dabce';
-  if (q.startsWith('Q5')) return '#20c997';
-  if (q.startsWith('Q4')) return '#7ecb7e';
-  if (q.startsWith('Q3')) return '#fd7e14';
-  if (q.startsWith('Q2')) return '#dc3545';
-  return '#6c757d';
-}
-
-function renderHFFileList(container, repoId, files, cardMeta = {}) {
-  container.innerHTML = '';
-  if (!files.length) { container.innerHTML = '<div class="small text-secondary">No GGUF files found</div>'; return; }
-  const visible = files.filter(f => {
-    const m = f.name.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/);
-    return !m || m[1] === '00001';
-  });
-  (visible.length ? visible : files).forEach(f => {
-    const isShard = /-[0-9]{5}-of-[0-9]{5}\.gguf$/.test(f.name);
-    const row = document.createElement('div');
-    row.className = 'd-flex justify-content-between align-items-center py-1 border-top border-secondary gap-2';
-    row.style.fontSize = '11px';
-    row.id = 'hf-row-' + btoa(repoId + '/' + f.name).replace(/[^a-zA-Z0-9]/g, '');
-
-    const left = document.createElement('div');
-    left.style.cssText = 'min-width:0;flex:1;display:flex;align-items:center;gap:6px';
-
-    const qBadge = document.createElement('span');
-    qBadge.style.cssText = `color:${quantColor(f.quant)};font-weight:600;flex-shrink:0;min-width:52px;font-size:11px`;
-    qBadge.textContent = f.quant || '—';
-
-    const nameEl = document.createElement('span');
-    nameEl.style.cssText = 'color:#6c757d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
-    nameEl.textContent = f.name.replace(/^.*\//, '');
-    nameEl.title = f.name;
-    left.appendChild(qBadge); left.appendChild(nameEl);
-    if (isShard) {
-      const shardTag = document.createElement('span');
-      shardTag.className = 'text-secondary';
-      shardTag.style.fontSize = '10px';
-      shardTag.textContent = '(sharded)';
-      left.appendChild(shardTag);
-    }
-
-    const right = document.createElement('div');
-    right.className = 'd-flex align-items-center gap-2';
-    right.style.flexShrink = '0';
-
-    if (f.size) {
-      const sizeEl = document.createElement('span');
-      sizeEl.className = 'text-secondary';
-      sizeEl.style.fontSize = '10px';
-      sizeEl.textContent = fmtBytes(f.size);
-      right.appendChild(sizeEl);
-    }
-
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-outline-secondary btn-sm py-0 px-2';
-    btn.style.fontSize = '10px';
-    btn.textContent = 'Pull';
-    btn.addEventListener('click', () => pullHFFile(repoId, f.name, row, btn, { ...cardMeta, hfRepoId: repoId, hfFilename: f.name, fileSize: f.size }));
-    right.appendChild(btn);
-
-    row.appendChild(left);
-    row.appendChild(right);
-    container.appendChild(row);
-  });
-}
-
-async function pullHFFile(repoId, filename, rowEl, btn, meta = {}) {
-  btn.disabled = true;
-  btn.textContent = 'Starting\u2026';
-  try {
-    const r = await fetch('/api/hf/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId, filename, meta }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error);
-    addHFDownloadRow(data.key, repoId, filename);
-    btn.textContent = '\u2193\u2026';
-  } catch (e) {
-    btn.disabled = false;
-    btn.textContent = 'Error';
-    btn.title = e.message;
-    setTimeout(() => { btn.disabled = false; btn.textContent = 'Pull'; btn.title = ''; }, 4000);
-  }
-}
 
 function addHFDownloadRow(key, repoId, filename) {
   const panel = document.getElementById('hfActiveDownloads');
