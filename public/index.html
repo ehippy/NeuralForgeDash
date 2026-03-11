@@ -23,6 +23,12 @@
   .overlay { display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.7); z-index: 100; }
   .overlay.open { display: flex; align-items: center; justify-content: center; }
   .dialog { background-color: #141418; border: 1px solid #2a2a35; border-radius: 10px; padding: 24px; max-width: 340px; width: 90%; }
+  #aliasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 8px; }
+  .model-card { background: transparent; border: 1px solid #2a2a35; border-radius: 8px; padding: 10px 12px; cursor: pointer; text-align: left; transition: border-color 0.15s; width: 100%; }
+  .model-card:hover:not(:disabled) { border-color: #444455; }
+  .model-card.active { border-color: #00d4aa; }
+  .model-card.last-active { border-color: #555566; }
+  .model-card:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -51,10 +57,25 @@
 <main class="container-fluid px-4 py-3 d-flex flex-column gap-3" style="max-height:100vh">
   <div class="bg-dark border border-secondary rounded-3 p-3">
     <div class="font-10 letter-spacing text-secondary mb-3">Switch Model</div>
-    <div class="d-flex flex-wrap gap-2" id="aliasGrid"></div>
+    <div id="aliasGrid"></div>
     <div class="mt-3" id="discoveredSection" style="display:none">
       <div class="font-10 text-secondary mb-2">Discovered</div>
       <div class="d-flex flex-wrap gap-2" id="discoveredGrid"></div>
+    </div>
+  </div>
+
+  <div class="bg-dark border border-secondary rounded-3 p-3">
+    <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleHFPanel()">
+      <div class="font-10 letter-spacing text-secondary">HuggingFace Hub</div>
+      <span id="hfToggleIcon" class="font-11 text-secondary" style="transition:transform 0.2s">▶</span>
+    </div>
+    <div id="hfPanel" style="display:none; margin-top:12px">
+      <div class="d-flex gap-2 mb-2">
+        <input type="text" id="hfSearchInput" class="form-control form-control-sm bg-dark border-secondary text-light"
+          placeholder="Search GGUF models on HuggingFace…" autocomplete="off" style="font-size:11px">
+      </div>
+      <div id="hfResults" class="d-flex flex-column gap-1" style="max-height:280px;overflow-y:auto"></div>
+      <div id="hfActiveDownloads" class="d-flex flex-column gap-2"></div>
     </div>
   </div>
 
@@ -289,6 +310,13 @@ function connectSSE() {
       loadModels();
       updateReady(state);
       loadLogs();
+    } else if (data.type === 'hf-progress') {
+      updateHFProgress(data.key, data.bytes, data.total);
+    } else if (data.type === 'hf-done') {
+      onHFDone(data.key, data.alias);
+      loadModels();
+    } else if (data.type === 'hf-error') {
+      onHFError(data.key, data.error);
     }
   };
   es.onerror = () => setTimeout(connectSSE, 5000);
@@ -326,15 +354,6 @@ function updateStatus(s) {
 
   document.getElementById('stopBtn').disabled = !s.running || s.switching;
   
-  if (!s.running && !s.switching && lastAlias && models.aliases[lastAlias]) {
-    const grid = document.getElementById('aliasGrid');
-    const btn = Array.from(grid.querySelectorAll('.model-btn')).find(b => b.dataset.alias === lastAlias);
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `<span class="alias-dot"></span><span class="me-1">▶</span> Start ${lastAlias} <span class="font-10 text-teal-dim ms-1">${models.aliases[lastAlias].name}</span>`;
-    }
-  }
-
   if (s.running && !uptimeTimer) {
     uptimeTimer = setInterval(() => {
       state.uptime++;
@@ -411,16 +430,35 @@ function setSwitching(on, alias) {
   document.getElementById('stopBtn').disabled = on;
 }
 
+function fmtCtx(n) {
+  if (!n) return '—';
+  if (n >= 1024) return Math.round(n / 1024) + 'k';
+  return String(n);
+}
+
 function renderModelButtons() {
   const grid = document.getElementById('aliasGrid');
   grid.innerHTML = '';
   for (const [alias, info] of Object.entries(models.aliases)) {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-outline-secondary btn-sm model-btn';
-    btn.dataset.alias = alias;
-    btn.innerHTML = `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:none"></span>${alias} <span class="font-10 text-secondary ms-1">${info.name}</span>`;
-    btn.onclick = () => confirmSwitch(alias, info.name);
-    grid.appendChild(btn);
+    const card = document.createElement('button');
+    card.className = 'model-btn model-card';
+    card.dataset.alias = alias;
+    card.onclick = () => confirmSwitch(alias, info.name);
+    const sizeLabel = info.fileSize ? fmtBytes(info.fileSize) : '';
+    const ctxLabel = fmtCtx(info.ctx || 32768);
+    const parallel = info.parallel || 2;
+    card.innerHTML =
+      `<div class="d-flex justify-content-between align-items-center mb-1">` +
+        `<div class="d-flex align-items-center gap-1">` +
+          `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:none;flex-shrink:0"></span>` +
+          `<span class="font-12 fw-semibold">${alias}</span>` +
+          `<span class="start-hint font-10 text-teal" style="display:none">▶</span>` +
+        `</div>` +
+        (sizeLabel ? `<span class="font-10 text-secondary">${sizeLabel}</span>` : '') +
+      `</div>` +
+      `<div class="font-10 text-secondary mb-1" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${info.name}">${info.name}</div>` +
+      `<div class="font-10" style="color:#555577">ctx&nbsp;${ctxLabel}&nbsp;·&nbsp;${parallel}&nbsp;slots</div>`;
+    grid.appendChild(card);
   }
 
   const discGrid = document.getElementById('discoveredGrid');
@@ -446,21 +484,18 @@ function renderModelButtons() {
 }
 
 function updateModelButtonStates(currentAlias) {
-  document.querySelectorAll('.model-btn[data-alias]').forEach(btn => {
-    const alias = btn.dataset.alias;
-    const isActive = alias === currentAlias;
-    btn.disabled = state.switching;
-    const dot = btn.querySelector('.dot');
-    if (isActive) {
-      dot.style.display = 'block';
-      if (!state.running && !state.switching && alias === lastAlias && models.aliases[lastAlias]) {
-        btn.innerHTML = `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:block"></span><span class="me-1">▶</span> Start ${alias} <span class="font-10 text-secondary ms-1">${models.aliases[alias].name}</span>`;
-      } else {
-        btn.innerHTML = `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:block"></span>${alias} <span class="font-10 text-secondary ms-1">${models.aliases[alias].name}</span>`;
-      }
-    } else {
-      dot.style.display = 'none';
-    }
+  const isStopped = !state.running && !state.switching;
+  document.querySelectorAll('.model-btn[data-alias]').forEach(card => {
+    const alias = card.dataset.alias;
+    const isRunning = state.running && alias === currentAlias;
+    const isLastStopped = isStopped && alias === lastAlias;
+    card.disabled = state.switching;
+    card.classList.toggle('active', isRunning);
+    card.classList.toggle('last-active', !isRunning && isLastStopped);
+    const dot = card.querySelector('.dot');
+    if (dot) dot.style.display = isRunning ? 'inline-block' : 'none';
+    const hint = card.querySelector('.start-hint');
+    if (hint) hint.style.display = isLastStopped ? 'inline' : 'none';
   });
   updateReady(state);
 }
@@ -517,6 +552,358 @@ function fmtUptime(s) {
 }
 
 init();
+
+// ── HuggingFace Hub ────────────────────────────────────────────────
+let hfOpen = false;
+let hfSearchTimer = null;
+// key → { barEl, labelEl, rowEl }
+const hfProgressEls = new Map();
+
+function toggleHFPanel() {
+  hfOpen = !hfOpen;
+  document.getElementById('hfPanel').style.display = hfOpen ? 'block' : 'none';
+  document.getElementById('hfToggleIcon').style.transform = hfOpen ? 'rotate(90deg)' : '';
+  if (hfOpen) {
+    // Restore any active downloads from server on first open
+    loadHFDownloads();
+    const inp = document.getElementById('hfSearchInput');
+    inp.removeEventListener('input', onHFInput);
+    inp.addEventListener('input', onHFInput);
+    inp.focus();
+  }
+}
+
+function onHFInput(e) {
+  clearTimeout(hfSearchTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { document.getElementById('hfResults').innerHTML = ''; return; }
+  hfSearchTimer = setTimeout(() => doHFSearch(q), 420);
+}
+
+async function doHFSearch(q) {
+  const container = document.getElementById('hfResults');
+  container.innerHTML = '<div class="font-11 text-secondary py-1">Searching…</div>';
+  try {
+    const r = await fetch(`/api/hf/search?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    renderHFResults(data.models || []);
+  } catch {
+    container.innerHTML = '<div class="font-11" style="color:#ff4757">Search failed</div>';
+  }
+}
+
+function renderHFResults(hfModels) {
+  const container = document.getElementById('hfResults');
+  container.innerHTML = '';
+  if (!hfModels.length) {
+    container.innerHTML = '<div class="font-11 text-secondary py-1">No results</div>';
+    return;
+  }
+  hfModels.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'border border-secondary rounded p-2 mb-1';
+    card.style.fontSize = '11px';
+
+    // ── header row: repo name + download/like counts ──────────────────
+    const [author, repoName] = m.id.includes('/') ? m.id.split('/') : ['', m.id];
+    const header = document.createElement('div');
+    header.className = 'd-flex justify-content-between align-items-start';
+    header.style.cursor = 'pointer';
+    header.style.gap = '8px';
+
+    const nameBlock = document.createElement('div');
+    nameBlock.style.minWidth = '0';
+    const authorEl = document.createElement('div');
+    authorEl.className = 'font-10';
+    authorEl.style.color = '#666677';
+    authorEl.textContent = author;
+    const nameEl = document.createElement('div');
+    nameEl.className = 'text-teal fw-semibold';
+    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px';
+    nameEl.title = m.id;
+    nameEl.textContent = repoName || m.id;
+    nameBlock.appendChild(authorEl);
+    nameBlock.appendChild(nameEl);
+
+    const statsBlock = document.createElement('div');
+    statsBlock.className = 'd-flex flex-column align-items-end gap-1';
+    statsBlock.style.flexShrink = '0';
+    const dlLikeEl = document.createElement('div');
+    dlLikeEl.className = 'font-10';
+    dlLikeEl.style.color = '#888899';
+    dlLikeEl.textContent = `↓ ${fmtNum(m.downloads)}  ♥ ${fmtNum(m.likes)}`;
+    statsBlock.appendChild(dlLikeEl);
+
+    // ── tag row: arch + pipeline + age ────────────────────────────────
+    const tagRow = document.createElement('div');
+    tagRow.className = 'd-flex gap-1 flex-wrap';
+    tagRow.style.marginTop = '4px';
+    if (m.arch) tagRow.appendChild(hfBadge(m.arch, '#2a3a4a', '#4dabce'));
+    if (m.pipeline) {
+      const pLabel = m.pipeline.replace(/-/g, ' ').replace('text generation', 'text-gen');
+      tagRow.appendChild(hfBadge(pLabel, '#2a2a35', '#888899'));
+    }
+    if (m.lastModified) {
+      tagRow.appendChild(hfBadge('updated ' + fmtAge(m.lastModified), '#1e1e24', '#666677'));
+    }
+
+    header.appendChild(nameBlock);
+    header.appendChild(statsBlock);
+
+    const fileList = document.createElement('div');
+    fileList.style.display = 'none';
+    fileList.style.marginTop = '6px';
+
+    let loaded = false;
+    header.addEventListener('click', async () => {
+      const open = fileList.style.display !== 'none';
+      fileList.style.display = open ? 'none' : 'block';
+      if (!open && !loaded) {
+        loaded = true;
+        fileList.innerHTML = '<div class="font-10 text-secondary">Loading files…</div>';
+        try {
+          const r = await fetch(`/api/hf/files?repo=${encodeURIComponent(m.id)}`);
+          const data = await r.json();
+          renderHFFileList(fileList, m.id, data.files || []);
+        } catch {
+          fileList.innerHTML = '<div class="font-10" style="color:#ff4757">Failed to load files</div>';
+        }
+      }
+    });
+
+    card.appendChild(header);
+    card.appendChild(tagRow);
+    card.appendChild(fileList);
+    container.appendChild(card);
+  });
+}
+
+function hfBadge(text, bg, color) {
+  const s = document.createElement('span');
+  s.className = 'font-10';
+  s.style.cssText = `background:${bg};color:${color};border-radius:3px;padding:1px 5px;white-space:nowrap`;
+  s.textContent = text;
+  return s;
+}
+
+function fmtAge(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const d = Math.floor(diff / 86400000);
+  if (d < 1) return 'today';
+  if (d < 7) return `${d}d ago`;
+  if (d < 31) return `${Math.floor(d/7)}w ago`;
+  if (d < 365) return `${Math.floor(d/30)}mo ago`;
+  return `${Math.floor(d/365)}y ago`;
+}
+
+// Quant quality tier → color
+const QUANT_COLORS = {
+  F32:'#aaaacc', BF16:'#aaaacc', F16:'#aaaacc',
+  Q8_0:'#4dabce', Q6_K:'#4dabce',
+  Q5_K_M:'#00d4aa', Q5_K_S:'#00d4aa', Q5_0:'#00d4aa', Q5_1:'#00d4aa',
+  Q4_K_M:'#7ecb7e', Q4_K_S:'#7ecb7e', Q4_0:'#7ecb7e', Q4_1:'#7ecb7e',
+  Q3_K_M:'#ffa502', Q3_K_S:'#ffa502', Q3_K_L:'#ffa502',
+  Q2_K:'#ff6b6b',
+};
+function quantColor(q) {
+  if (!q) return '#555577';
+  if (QUANT_COLORS[q]) return QUANT_COLORS[q];
+  if (q.startsWith('IQ')) return '#c084fc';
+  if (q.startsWith('Q8')) return '#4dabce';
+  if (q.startsWith('Q6')) return '#4dabce';
+  if (q.startsWith('Q5')) return '#00d4aa';
+  if (q.startsWith('Q4')) return '#7ecb7e';
+  if (q.startsWith('Q3')) return '#ffa502';
+  if (q.startsWith('Q2')) return '#ff6b6b';
+  return '#888899';
+}
+
+function renderHFFileList(container, repoId, files) {
+  container.innerHTML = '';
+  if (!files.length) {
+    container.innerHTML = '<div class="font-10 text-secondary">No GGUF files found</div>';
+    return;
+  }
+  // Sort: shards first (skipping shards 2+), then by name
+  const visible = files.filter(f => {
+    const m = f.name.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/);
+    return !m || m[1] === '00001';
+  });
+  (visible.length ? visible : files).forEach(f => {
+    const isShard = /-[0-9]{5}-of-[0-9]{5}\.gguf$/.test(f.name);
+    const row = document.createElement('div');
+    row.className = 'd-flex justify-content-between align-items-center py-1 border-top border-secondary gap-2';
+    row.style.fontSize = '11px';
+    row.id = 'hf-row-' + btoa(repoId + '/' + f.name).replace(/[^a-zA-Z0-9]/g, '');
+
+    const left = document.createElement('div');
+    left.style.cssText = 'min-width:0;flex:1;display:flex;align-items:center;gap:6px';
+
+    // quant badge
+    const qBadge = document.createElement('span');
+    qBadge.className = 'font-10';
+    qBadge.style.cssText = `color:${quantColor(f.quant)};font-weight:600;flex-shrink:0;min-width:52px`;
+    qBadge.textContent = f.quant || '—';
+
+    // filename (dimmed, truncated)
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText = 'color:#555577;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+    // Show just the unique part — strip the common repo prefix from the name
+    const shortName = f.name.replace(/^.*\//, '');
+    nameEl.textContent = shortName;
+    nameEl.title = f.name;
+    if (isShard) {
+      const shardTag = document.createElement('span');
+      shardTag.className = 'font-10';
+      shardTag.style.cssText = 'color:#666677;flex-shrink:0';
+      shardTag.textContent = '(sharded)';
+      left.appendChild(qBadge); left.appendChild(nameEl); left.appendChild(shardTag);
+    } else {
+      left.appendChild(qBadge); left.appendChild(nameEl);
+    }
+
+    const right = document.createElement('div');
+    right.className = 'd-flex align-items-center gap-2';
+    right.style.flexShrink = '0';
+
+    if (f.size) {
+      const sizeEl = document.createElement('span');
+      sizeEl.className = 'font-10';
+      sizeEl.style.color = '#666677';
+      sizeEl.textContent = fmtBytes(f.size);
+      right.appendChild(sizeEl);
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-outline-secondary btn-sm py-0 px-2 font-10';
+    btn.textContent = 'Pull';
+    btn.addEventListener('click', () => pullHFFile(repoId, f.name, row, btn));
+    right.appendChild(btn);
+
+    row.appendChild(left);
+    row.appendChild(right);
+    container.appendChild(row);
+  });
+}
+
+async function pullHFFile(repoId, filename, rowEl, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/hf/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId, filename }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+    // Add progress row to the active downloads panel
+    addHFDownloadRow(data.key, repoId, filename);
+    btn.textContent = '↓…';
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Error';
+    btn.title = e.message;
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Pull'; btn.title = ''; }, 4000);
+  }
+}
+
+function addHFDownloadRow(key, repoId, filename) {
+  const panel = document.getElementById('hfActiveDownloads');
+  if (panel.children.length === 0) panel.style.marginTop = '10px';
+
+  const wrap = document.createElement('div');
+  wrap.id = 'hfdl-' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
+
+  const topRow = document.createElement('div');
+  topRow.className = 'd-flex justify-content-between font-10 mb-1';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'text-secondary';
+  nameEl.style.overflow = 'hidden';
+  nameEl.style.textOverflow = 'ellipsis';
+  nameEl.style.whiteSpace = 'nowrap';
+  nameEl.textContent = filename;
+  const labelEl = document.createElement('span');
+  labelEl.className = 'text-teal';
+  labelEl.style.flexShrink = '0';
+  labelEl.textContent = '0%';
+  topRow.appendChild(nameEl);
+  topRow.appendChild(labelEl);
+
+  const progWrap = document.createElement('div');
+  progWrap.className = 'progress';
+  progWrap.style.height = '4px';
+  const barEl = document.createElement('div');
+  barEl.className = 'progress-bar bg-success';
+  barEl.style.width = '0%';
+  barEl.style.transition = 'width 0.4s ease';
+  progWrap.appendChild(barEl);
+
+  wrap.appendChild(topRow);
+  wrap.appendChild(progWrap);
+  panel.appendChild(wrap);
+
+  hfProgressEls.set(key, { barEl, labelEl, wrap });
+}
+
+function updateHFProgress(key, bytes, total) {
+  const el = hfProgressEls.get(key);
+  if (!el) return;
+  if (total > 0) {
+    const pct = Math.round((bytes / total) * 100);
+    el.barEl.style.width = pct + '%';
+    el.labelEl.textContent = `${pct}% · ${fmtBytes(bytes)} / ${fmtBytes(total)}`;
+  } else {
+    el.labelEl.textContent = fmtBytes(bytes);
+  }
+}
+
+function onHFDone(key, alias) {
+  const el = hfProgressEls.get(key);
+  if (el) {
+    el.barEl.style.width = '100%';
+    el.barEl.className = 'progress-bar bg-success';
+    el.labelEl.textContent = `✓ done · alias: ${alias}`;
+    setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 8000);
+  }
+}
+
+function onHFError(key, errMsg) {
+  const el = hfProgressEls.get(key);
+  if (el) {
+    el.barEl.className = 'progress-bar bg-danger';
+    el.barEl.style.width = '100%';
+    el.labelEl.textContent = '✗ ' + errMsg;
+    el.labelEl.style.color = '#ff4757';
+    setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 10000);
+  }
+}
+
+async function loadHFDownloads() {
+  try {
+    const r = await fetch('/api/hf/downloads');
+    const data = await r.json();
+    for (const d of data.downloads) {
+      if (!d.done && !d.error && !hfProgressEls.has(d.key)) {
+        addHFDownloadRow(d.key, d.repoId, d.filename);
+        updateHFProgress(d.key, d.bytes, d.total);
+      }
+    }
+  } catch {}
+}
+
+function fmtBytes(b) {
+  if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
+  if (b >= 1e6) return (b / 1e6).toFixed(0) + ' MB';
+  if (b >= 1e3) return (b / 1e3).toFixed(0) + ' KB';
+  return b + ' B';
+}
+
+function fmtNum(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
 </script>
 </body>
 </html>

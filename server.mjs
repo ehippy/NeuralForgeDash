@@ -1,9 +1,9 @@
 import { createServer } from 'http';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, createWriteStream, writeFileSync } from 'fs';
 import { spawn, exec } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFile, readdir, stat } from 'fs/promises';
+import { readFile, readdir, stat, mkdir, rename, unlink } from 'fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -282,6 +282,150 @@ async function discoverModels() {
   return found;
 }
 
+// ── HuggingFace Hub ───────────────────────────────────────────────────────────
+const HF_API = 'https://huggingface.co/api';
+const HF_TOKEN = process.env.HF_TOKEN || null;
+
+function hfHeaders() {
+  return HF_TOKEN ? { Authorization: `Bearer ${HF_TOKEN}` } : {};
+}
+
+// Known architecture keywords to surface as a badge
+const HF_ARCH_TAGS = ['llama','mistral','qwen','phi','gemma','falcon','gpt','mixtral','deepseek','mamba','command','yi','solar','internlm','baichuan','bloom','codellama','starcoder','wizardcoder','openchat','vicuna','orca','hermes','dolphin','nous'];
+
+function hfExtractArch(tags = []) {
+  for (const t of tags) {
+    const tl = t.toLowerCase();
+    for (const a of HF_ARCH_TAGS) if (tl.includes(a)) return a;
+  }
+  return null;
+}
+
+function hfParseQuant(filename) {
+  const m = filename.match(/[._-]((?:IQ|BF|[QqFf])[0-9][A-Za-z0-9_]*)\.gguf$/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+async function hfSearch(query, limit = 20) {
+  const url = `${HF_API}/models?search=${encodeURIComponent(query)}&filter=gguf&limit=${limit}&sort=downloads&direction=-1`;
+  const res = await fetch(url, { headers: hfHeaders(), signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HF search failed: ${res.status}`);
+  const list = await res.json();
+  return list.map(m => ({
+    id: m.id,
+    downloads: m.downloads || 0,
+    likes: m.likes || 0,
+    lastModified: m.lastModified || null,
+    pipeline: m.pipeline_tag || null,
+    arch: hfExtractArch(m.tags || []),
+  }));
+}
+
+async function hfRepoFiles(repoId) {
+  const url = `${HF_API}/models/${repoId}`;
+  const res = await fetch(url, { headers: hfHeaders(), signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HF fetch failed: ${res.status}`);
+  const data = await res.json();
+  return (data.siblings || [])
+    .filter(f => f.rfilename.endsWith('.gguf'))
+    .map(f => ({
+      name: f.rfilename,
+      size: f.size || null,
+      quant: hfParseQuant(f.rfilename),
+    }));
+}
+
+// active + recently finished downloads, keyed by "repoId/filename"
+const downloads = new Map();
+
+function validateHFInput(repoId, filename) {
+  // repoId must be "owner/repo"
+  if (!/^[a-zA-Z0-9]([a-zA-Z0-9._-]*)\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(repoId))
+    throw new Error('Invalid repoId');
+  // filename base (we only keep the basename) must be a safe .gguf name
+  const base = filename.split('/').pop();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.gguf$/i.test(base))
+    throw new Error('Invalid filename');
+  return base;
+}
+
+async function startDownload(repoId, filename) {
+  const cleanName = validateHFInput(repoId, filename);
+  const key = `${repoId}/${cleanName}`;
+
+  const existing = downloads.get(key);
+  if (existing && !existing.done && !existing.error) throw new Error('Already downloading');
+
+  const destDir = join(MODELS_DIR, repoId.replace('/', '--'));
+  await mkdir(destDir, { recursive: true });
+  const dest = join(destDir, cleanName);
+  const tmp  = dest + '.tmp';
+
+  const controller = new AbortController();
+  const entry = { repoId, filename: cleanName, dest, bytes: 0, total: 0, done: false, error: null, controller };
+  downloads.set(key, entry);
+
+  (async () => {
+    try {
+      const url = `https://huggingface.co/${repoId}/resolve/main/${cleanName}`;
+      const res = await fetch(url, { headers: hfHeaders(), signal: controller.signal, redirect: 'follow' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      entry.total = parseInt(res.headers.get('content-length') || '0');
+      const writer = createWriteStream(tmp);
+      let lastBroadcast = 0;
+
+      for await (const chunk of res.body) {
+        writer.write(chunk);
+        entry.bytes += chunk.length;
+        const now = Date.now();
+        if (now - lastBroadcast > 800) {
+          lastBroadcast = now;
+          broadcastSSE({ type: 'hf-progress', key, bytes: entry.bytes, total: entry.total });
+        }
+      }
+      await new Promise((resolve, reject) => writer.end(err => err ? reject(err) : resolve()));
+
+      await rename(tmp, dest);
+      entry.done = true;
+
+      const alias = addModelAlias(repoId, cleanName, dest);
+      broadcastSSE({ type: 'hf-done', key, alias });
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        entry.error = err.message;
+        broadcastSSE({ type: 'hf-error', key, error: err.message });
+      }
+      try { await unlink(tmp); } catch {}
+    }
+  })();
+
+  return key;
+}
+
+function addModelAlias(repoId, filename, dest) {
+  const cfgPath = join(__dirname, 'models.json');
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+
+  // Build a short alias slug from the filename
+  const base = filename.replace(/\.gguf$/i, '');
+  let slug = base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 20).replace(/-$/, '');
+  let alias = slug;
+  let i = 2;
+  while (cfg.aliases[alias]) alias = `${slug}-${i++}`;
+
+  // Guess a friendly quant label from filename, e.g. "Q4_K_M"
+  const quantTag = filename.match(/([qQ][0-9][^.]*)/)?.[1] || '';
+  cfg.aliases[alias] = {
+    name: `${repoId.split('/').pop()}${quantTag ? ' ' + quantTag : ''}`,
+    model: dest,
+    ctx: 32768,
+    parallel: 2,
+  };
+  writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+  return alias;
+}
+
 // ── SSE clients ───────────────────────────────────────────────────────────────
 const sseClients = new Set();
 
@@ -334,13 +478,18 @@ const server = createServer(async (req, res) => {
   if (path === '/api/models' && req.method === 'GET') {
     const config = readConfig();
     const discovered = await discoverModels();
-    const aliases = Object.fromEntries(
-      Object.entries(config.aliases).filter(([, info]) =>
-        existsSync(info.model.replace('~', process.env.HOME))
-      )
+    const aliasEntries = await Promise.all(
+      Object.entries(config.aliases)
+        .filter(([, info]) => existsSync(info.model.replace('~', process.env.HOME)))
+        .map(async ([alias, info]) => {
+          const p = info.model.replace('~', process.env.HOME);
+          let fileSize = null;
+          try { fileSize = (await stat(p)).size; } catch {}
+          return [alias, { ...info, fileSize }];
+        })
     );
     json(res, {
-      aliases,
+      aliases: Object.fromEntries(aliasEntries),
       discovered: discovered.map(p => ({ path: p, name: p.replace(MODELS_DIR + '/', '') })),
     });
     return;
@@ -376,6 +525,64 @@ const server = createServer(async (req, res) => {
     await manager.stop();
     broadcastSSE({ type: 'stopped' });
     json(res, { ok: true });
+    return;
+  }
+
+  // HF Hub routes
+  if (path === '/api/hf/search' && req.method === 'GET') {
+    const q = url.searchParams.get('q') || '';
+    if (!q.trim()) { json(res, { models: [] }); return; }
+    try {
+      const models = await hfSearch(q.trim());
+      json(res, { models });
+    } catch (e) { error(res, 502, e.message); }
+    return;
+  }
+
+  if (path === '/api/hf/files' && req.method === 'GET') {
+    const repo = url.searchParams.get('repo') || '';
+    try {
+      validateHFInput(repo, 'dummy.gguf'); // reuse repoId validation
+      const files = await hfRepoFiles(repo);
+      json(res, { files });
+    } catch (e) { error(res, repo ? 502 : 400, e.message); }
+    return;
+  }
+
+  if (path === '/api/hf/pull' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { repoId, filename } = JSON.parse(body || '{}');
+        if (!repoId || !filename) { error(res, 400, 'repoId and filename required'); return; }
+        const key = await startDownload(repoId, filename);
+        json(res, { ok: true, key });
+      } catch (e) { error(res, 400, e.message); }
+    });
+    return;
+  }
+
+  if (path === '/api/hf/downloads' && req.method === 'GET') {
+    const list = [...downloads.entries()].map(([key, d]) => ({
+      key, repoId: d.repoId, filename: d.filename,
+      bytes: d.bytes, total: d.total, done: d.done, error: d.error,
+    }));
+    json(res, { downloads: list });
+    return;
+  }
+
+  if (path === '/api/hf/cancel' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { key } = JSON.parse(body || '{}');
+        const d = downloads.get(key);
+        if (d && !d.done) { d.controller.abort(); downloads.delete(key); }
+        json(res, { ok: true });
+      } catch (e) { error(res, 400, e.message); }
+    });
     return;
   }
 
