@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NeuralForge</title>
+<link id="dynFavicon" rel="icon" type="image/png">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
   body { background-color: #0d0d0f; color: #e8e8f0; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 13px; }
@@ -172,6 +173,52 @@ let lastAlias = null;
 let uptimeTimer = null;
 const MAX_LOG_LINES = 200;
 
+// ── Reactive favicon sparkline ────────────────────────────────────────────────
+const _fvCanvas = Object.assign(document.createElement('canvas'), { width: 32, height: 32 });
+const _fvCtx = _fvCanvas.getContext('2d');
+const _fvHist = { busy: [], gtt: [] };
+const _fvLen = 20;
+
+function drawFavicon(busyPct, gttPct) {
+  if (busyPct != null) { _fvHist.busy.push(busyPct); if (_fvHist.busy.length > _fvLen) _fvHist.busy.shift(); }
+  if (gttPct  != null) { _fvHist.gtt.push(gttPct);   if (_fvHist.gtt.length  > _fvLen) _fvHist.gtt.shift(); }
+
+  const ctx = _fvCtx, W = 32, H = 32, pad = 2;
+  const pw = W - pad * 2, ph = H - pad * 2;
+  ctx.clearRect(0, 0, W, H);
+
+  // Dark background with rounded corners
+  ctx.fillStyle = '#141418';
+  ctx.beginPath(); ctx.roundRect(0, 0, W, H, 5); ctx.fill();
+
+  function plot(data, color, fillAlpha) {
+    const n = data.length;
+    if (n < 2) return;
+    const pts = data.map((v, i) => [
+      pad + (i / (n - 1)) * pw,
+      pad + ph - Math.min(100, Math.max(0, v)) / 100 * ph
+    ]);
+    ctx.save();
+    // Filled area
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pad + ph);
+    pts.forEach(([x, y]) => ctx.lineTo(x, y));
+    ctx.lineTo(pts[pts.length - 1][0], pad + ph);
+    ctx.closePath();
+    ctx.fillStyle = color; ctx.globalAlpha = fillAlpha; ctx.fill(); ctx.globalAlpha = 1;
+    // Crisp line on top
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  plot(_fvHist.gtt,  '#ff9f43', 0.35); // GTT: amber (behind)
+  plot(_fvHist.busy, '#00d4aa', 0.35); // GPU busy: teal (front)
+
+  document.getElementById('dynFavicon').href = _fvCanvas.toDataURL();
+}
+
 async function init() {
   await loadModels();
   await refresh();
@@ -326,6 +373,11 @@ function updateGpu(g) {
 
   document.getElementById('gpuClock').textContent = g.clockMhz ? `${g.clockMhz} MHz` : '—';
   document.getElementById('cpuTemp').textContent = g.cpuTempC != null ? `${g.cpuTempC.toFixed(0)}°C` : '—';
+
+  const gttPct = g.gttUsedGB && g.gttTotalGB
+    ? (parseFloat(g.gttUsedGB) / parseFloat(g.gttTotalGB)) * 100
+    : null;
+  drawFavicon(g.busyPct, gttPct);
 }
 
 
