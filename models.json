@@ -10,13 +10,13 @@
     "host": "0.0.0.0",
     "ubatchSize": 2048
   },
-    "aliases": {
-      "coder": {
-        "name": "Qwen3-Coder-Next Q8",
-        "model": "~/models/Qwen3-Coder-Next/Q8_0/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf",
-        "ctx": 131072,
-        "parallel": 3
-      },
+  "aliases": {
+    "coder": {
+      "name": "Qwen3-Coder-Next Q8",
+      "model": "~/models/Qwen3-Coder-Next/Q8_0/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf",
+      "ctx": 131072,
+      "parallel": 3
+    },
     "qwen9b": {
       "name": "Qwen3.5-9B Q4_K_M",
       "model": "~/models/Qwen3.5-9B/Qwen3.5-9B-Q4_K_M.gguf",

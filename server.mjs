@@ -1,9 +1,9 @@
 import { createServer } from 'http';
-import { readFileSync, existsSync, readdirSync, statSync, unlinkSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { spawn, exec } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFile } from 'fs/promises';
+import { readFile, readdir, stat } from 'fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,26 +34,21 @@ const LLAMA_BIN = process.env.LLAMA_BIN || join(process.env.HOME, '.local/bin/ll
 const AUTOSTART_ALIAS = process.env.AUTOSTART_ALIAS || '';
 const LLAMA_PORT = 8081;
 
-const config = JSON.parse(readFileSync(join(__dirname, 'models.json'), 'utf8'));
+function readConfig() {
+  return JSON.parse(readFileSync(join(__dirname, 'models.json'), 'utf8'));
+}
 
 // ── Circular log buffer ────────────────────────────────────────────────────────
 class LogBuffer {
   constructor(size = 100) {
     this.size = size;
     this.lines = [];
-    this.lastIndex = 0;
   }
   push(line) {
     this.lines.push(line);
     if (this.lines.length > this.size) this.lines.shift();
-    else this.lastIndex = this.lines.length;
   }
   get() { return this.lines; }
-  getNew() {
-    const newLines = this.lines.slice(this.lastIndex);
-    this.lastIndex = this.lines.length;
-    return newLines;
-  }
 }
 
 // ── LlamaManager ──────────────────────────────────────────────────────────────
@@ -68,6 +63,7 @@ class LlamaManager {
   }
 
   async start(alias) {
+    const config = readConfig();
     const aliasConfig = config.aliases[alias];
     if (!aliasConfig) throw new Error(`Unknown alias: ${alias}`);
 
@@ -235,7 +231,6 @@ async function getGpuStats() {
   };
 }
 
-let _prevMetrics = null;
 async function getLlamaMetrics() {
   try {
     const res = await fetch(`http://localhost:${LLAMA_PORT}/metrics`, { signal: AbortSignal.timeout(1500) });
@@ -264,26 +259,26 @@ async function getLlamaMetrics() {
 
 async function discoverModels() {
   const found = [];
-  function walk(dir, depth = 0) {
+  async function walk(dir, depth = 0) {
     if (depth > 3) return;
-    try {
-      for (const entry of readdirSync(dir)) {
-        const full = join(dir, entry);
-        try {
-          const st = statSync(full);
-          if (st.isDirectory()) walk(full, depth + 1);
-          else if (entry.endsWith('.gguf') && !entry.match(/\d{5}-of-\d{5}(?!\.gguf$)/) ) {
-            // Skip non-first shards (include 00001-of-NNNNN, skip 00002+ shards)
-            const shardMatch = entry.match(/-(\d{5})-of-(\d{5})\.gguf$/);
-            if (!shardMatch || shardMatch[1] === '00001') {
-              found.push(full);
-            }
-          }
-        } catch {}
+    let entries;
+    try { entries = await readdir(dir); } catch { return; }
+    await Promise.all(entries.map(async entry => {
+      const full = join(dir, entry);
+      let st;
+      try { st = await stat(full); } catch { return; }
+      if (st.isDirectory()) {
+        await walk(full, depth + 1);
+      } else if (entry.endsWith('.gguf')) {
+        // Skip non-first shards (include 00001-of-NNNNN, skip 00002+)
+        const shardMatch = entry.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/);
+        if (!shardMatch || shardMatch[1] === '00001') {
+          found.push(full);
+        }
       }
-    } catch {}
+    }));
   }
-  walk(MODELS_DIR);
+  await walk(MODELS_DIR);
   return found;
 }
 
@@ -310,7 +305,7 @@ const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  // SSE stream
+  // SSE stream - just send status updates, logs always fetched via polling
   if (path === '/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -326,45 +321,7 @@ const server = createServer(async (req, res) => {
   // API routes
   if (path === '/api/status' && req.method === 'GET') {
     const st = manager.status();
-    let llamaHealth = false;
-    if (st.running) llamaHealth = await checkHealth();
-    // Detect if llama-server is running even if not managed by us
-    if (!st.running && !st.switching) {
-      llamaHealth = await checkHealth();
-      if (llamaHealth) {
-        try {
-          const { stdout } = await new Promise((resolve, reject) => {
-            exec('pgrep -fa llama-server', (err, stdout) => {
-              if (err) reject(err);
-              resolve({ stdout: stdout || '' });
-            });
-          });
-          const lines = stdout.trim().split('\n').filter(Boolean);
-          const myPid = process.pid;
-          for (const line of lines) {
-            const [pid, ...args] = line.trim().split(' ');
-            if (parseInt(pid) !== myPid && args.join(' ').includes('--port ' + LLAMA_PORT)) {
-              manager.proc = { pid: parseInt(pid) };
-              manager.startTime = Date.now();
-              manager.alias = 'unknown';
-              manager.modelName = 'unknown';
-              for (const arg of args) {
-                if (arg.endsWith('.gguf')) {
-                  manager.modelName = arg.split('/').pop().replace('.gguf', '');
-                  break;
-                }
-              }
-              break;
-            }
-          }
-        } catch {}
-        st.running = true;
-        st.pid = manager.proc?.pid || 'detected';
-        st.uptime = 0;
-        st.alias = manager.alias;
-        st.model = manager.modelName;
-      }
-    }
+    const llamaHealth = st.running ? await checkHealth() : false;
     json(res, { ...st, healthy: llamaHealth });
     return;
   }
@@ -375,6 +332,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/api/models' && req.method === 'GET') {
+    const config = readConfig();
     const discovered = await discoverModels();
     const aliases = Object.fromEntries(
       Object.entries(config.aliases).filter(([, info]) =>
@@ -447,36 +405,13 @@ function error(res, code, msg) {
 setInterval(async () => {
   if (sseClients.size === 0) return;
   const [gpu, status, metrics] = await Promise.all([getGpuStats(), Promise.resolve(manager.status()), getLlamaMetrics()]);
-  const newLogs = manager.logs.getNew();
-  broadcastSSE({ type: 'update', gpu, status, metrics, logs: newLogs });
+  broadcastSSE({ type: 'update', gpu, status, metrics });
 }, 2000);
 
 // Startup
 server.listen(PORT, async () => {
   console.log(`[neuralforge] Listening on port ${PORT}`);
   await killOrphans();
-  const health = await checkHealth();
-  if (health) {
-    console.log(`[neuralforge] Detected running llama-server on port ${LLAMA_PORT}`);
-    // Try to detect alias from process args
-    try {
-      const { stdout } = await new Promise((resolve, reject) => {
-        exec('pgrep -fa llama-server', (err, stdout) => {
-          if (err) reject(err);
-          resolve({ stdout: stdout || '' });
-        });
-      });
-      const lines = stdout.trim().split('\n').filter(Boolean);
-      const myPid = process.pid;
-      for (const line of lines) {
-        const [pid, ...args] = line.trim().split(' ');
-        if (parseInt(pid) !== myPid && args.join(' ').includes('--port ' + LLAMA_PORT)) {
-          console.log(`[neuralforge] Detected existing llama-server PID ${pid}`);
-          break;
-        }
-      }
-    } catch {}
-  }
   if (AUTOSTART_ALIAS) {
     console.log(`[neuralforge] Autostarting: ${AUTOSTART_ALIAS}`);
     setTimeout(() => manager.start(AUTOSTART_ALIAS).catch(console.error), 3000);
