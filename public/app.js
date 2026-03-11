@@ -160,6 +160,7 @@ document.addEventListener('alpine:init', () => {
     instances: {},
     models: { aliases: {}, discovered: [] },
     _uptimeTimers: new Map(),
+    hfModal: { open: false, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false },
 
     get runningList() {
       return Object.values(this.instances).filter(s => s.running);
@@ -279,33 +280,61 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    async addFromHF() {
-      const input = prompt('Paste a HuggingFace URL or repo ID (owner/repo):');
-      if (!input || !input.trim()) return;
-      const r = await fetch('/api/hf/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: input.trim() }),
-      });
-      const data = await r.json();
-      if (!r.ok) { alert(data.error || 'Failed'); return; }
-      if (data.files) {
-        // Repo only — show file picker
-        const lines = data.files.map((f, i) => `${i + 1}. ${f.quant || '?'} — ${f.name.split('/').pop()}${f.size ? ' (' + fmtBytes(f.size) + ')' : ''}`);
-        const choice = prompt(`Choose a file from ${data.repoId}:\n\n${lines.join('\n')}\n\nEnter number:`);
-        const idx = parseInt(choice) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= data.files.length) return;
-        const chosen = data.files[idx];
-        const r2 = await fetch('/api/hf/add', {
+    openHFModal() {
+      this.hfModal = { open: true, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false };
+      setTimeout(() => document.getElementById('hfModalInput')?.focus(), 50);
+    },
+
+    async hfFetch() {
+      const input = this.hfModal.input.trim();
+      if (!input) return;
+      this.hfModal.loading = true;
+      this.hfModal.error = null;
+      this.hfModal.files = null;
+      this.hfModal.selected = null;
+      this.hfModal.repoId = null;
+      try {
+        const r = await fetch('/api/hf/add', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: input.trim(), filename: chosen.name }),
+          body: JSON.stringify({ input }),
         });
-        const d2 = await r2.json();
-        if (!r2.ok) { alert(d2.error || 'Failed'); return; }
-        addHFDownloadRow(d2.key, d2.repoId, d2.filename);
-      } else {
-        addHFDownloadRow(data.key, data.repoId, data.filename);
+        const data = await r.json();
+        if (!r.ok) { this.hfModal.error = data.error || 'Failed'; return; }
+        if (!data.files) {
+          // Direct GGUF URL — download started immediately
+          addHFDownloadRow(data.key, data.repoId, data.filename);
+          this.hfModal.open = false;
+        } else if (!data.files.length) {
+          this.hfModal.error = `No GGUF files found in ${data.repoId}.\nThis repo may only have safetensors weights. Try searching for "${data.repoId.split('/').pop()}-GGUF" on HuggingFace.`;
+        } else {
+          this.hfModal.repoId = data.repoId;
+          this.hfModal.files = data.files;
+        }
+      } catch (e) {
+        this.hfModal.error = e.message;
+      } finally {
+        this.hfModal.loading = false;
+      }
+    },
+
+    async hfDownload() {
+      const { input, selected } = this.hfModal;
+      if (!selected) return;
+      this.hfModal.downloading = true;
+      try {
+        const r = await fetch('/api/hf/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: input.trim(), filename: selected.name }),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.hfModal.error = d.error || 'Failed'; this.hfModal.downloading = false; return; }
+        addHFDownloadRow(d.key, d.repoId, d.filename);
+        this.hfModal.open = false;
+      } catch (e) {
+        this.hfModal.error = e.message;
+        this.hfModal.downloading = false;
       }
     },
   });

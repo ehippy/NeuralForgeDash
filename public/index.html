@@ -21,6 +21,7 @@
   .run-dot.live { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.25), 0 0 10px rgba(34,197,94,0.5); }
   #aliasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
   [x-cloak] { display: none !important; }
+  .hf-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:1050; display:flex; align-items:center; justify-content:center; padding:1rem; }
 </style>
 </head>
 <body x-data>
@@ -49,7 +50,7 @@
         <div class="d-flex justify-content-between mb-1"><span class="text-secondary">Disk</span><span id="diskVal">—</span></div>
         <div class="progress" style="height:3px"><div class="progress-bar bg-warning" id="diskBar" role="progressbar" style="width:0%"></div></div>
       </div>
-    <button class="btn btn-outline-secondary btn-sm" @click="$store.nf.addFromHF()" title="Add model from HuggingFace">🤗</button>
+    <button class="btn btn-outline-secondary btn-sm" @click="$store.nf.openHFModal()" title="Add model from HuggingFace">🤗</button>
     <a class="btn btn-outline-secondary btn-sm" href="http://localhost:3000" target="_blank">Open WebUI</a>
   </div>
 </nav>
@@ -195,6 +196,88 @@
   </div>
 
 </main>
+
+<!-- HF Add Modal -->
+<div class="hf-backdrop" x-show="$store.nf.hfModal.open" x-cloak
+  @keydown.escape.window="$store.nf.hfModal.open = false"
+  @click.self="$store.nf.hfModal.open = false">
+  <div class="bg-dark border border-secondary rounded p-4" style="width:100%;max-width:540px;max-height:80vh;display:flex;flex-direction:column;gap:1rem">
+
+    <div class="d-flex align-items-center justify-content-between">
+      <h6 class="mb-0 fw-semibold">🤗 Add from HuggingFace</h6>
+      <button class="btn-close btn-close-white btn-sm" @click="$store.nf.hfModal.open = false"></button>
+    </div>
+
+    <div class="d-flex gap-2">
+      <input id="hfModalInput" type="text"
+        class="form-control form-control-sm bg-dark text-light border-secondary"
+        placeholder="https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF  or  owner/repo"
+        x-model="$store.nf.hfModal.input"
+        @keydown.enter="$store.nf.hfFetch()"
+        :disabled="$store.nf.hfModal.loading || $store.nf.hfModal.downloading">
+      <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
+        @click="$store.nf.hfFetch()"
+        :disabled="!$store.nf.hfModal.input.trim() || $store.nf.hfModal.loading || $store.nf.hfModal.downloading">
+        <span x-show="!$store.nf.hfModal.loading">Find Files</span>
+        <span x-show="$store.nf.hfModal.loading">…</span>
+      </button>
+    </div>
+
+    <div x-show="$store.nf.hfModal.error" class="text-danger small" x-text="$store.nf.hfModal.error"></div>
+
+    <template x-if="$store.nf.hfModal.files && $store.nf.hfModal.files.length">
+      <div style="overflow-y:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:0.75rem">
+
+        <!-- quant cheat sheet -->
+        <details style="font-size:0.72rem">
+          <summary class="text-secondary" style="cursor:pointer;user-select:none">What do these formats mean? <i class="bi bi-info-circle"></i></summary>
+          <div class="mt-2 rounded border border-secondary p-2 d-flex flex-column gap-1" style="font-size:0.71rem;line-height:1.5">
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#dc3545">Q2 / IQ2</span><span class="text-secondary">~2 bits — smallest files, biggest quality loss</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#fd7e14">Q3 / IQ3</span><span class="text-secondary">~3 bits — very small, noticeable quality hit</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#7ecb7e">Q4_K_M ⭐</span><span class="text-secondary">~4 bits — <strong>sweet spot</strong>: good quality, reasonable size</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#20c997">Q5_K_M</span><span class="text-secondary">~5 bits — better quality, somewhat larger</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#4dabce">Q6_K</span><span class="text-secondary">~6 bits — near-lossless quality</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#4dabce">Q8_0</span><span class="text-secondary">~8 bits — essentially indistinguishable from full precision</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px;color:#adb5bd">BF16 / F16</span><span class="text-secondary">Full 16-bit precision — largest files, max quality</span></div>
+            <hr class="border-secondary my-1">
+            <div class="d-flex gap-2"><span style="min-width:72px" class="text-secondary">_S / _M / _L</span><span class="text-secondary">Within a bit-level: S=smaller, M=balanced, L=larger (better quality)</span></div>
+            <div class="d-flex gap-2"><span style="min-width:72px" class="text-secondary">sharded</span><span class="text-secondary">Split across multiple files — not directly downloadable here</span></div>
+          </div>
+        </details>
+
+        <p class="text-secondary mb-0" style="font-size:0.75rem" x-text="`${$store.nf.hfModal.files.length} GGUF files in ${$store.nf.hfModal.repoId} — click to select:`"></p>
+        <div class="d-flex flex-column gap-1">
+          <template x-for="f in $store.nf.hfModal.files" :key="f.name">
+            <div class="d-flex align-items-center justify-content-between rounded px-2 py-2 border"
+              :style="f.shard ? 'opacity:0.45;cursor:not-allowed' : 'cursor:pointer'"
+              style="font-size:0.8rem"
+              :class="$store.nf.hfModal.selected?.name === f.name ? 'border-success bg-success bg-opacity-10' : 'border-secondary'"
+              @click="!f.shard && ($store.nf.hfModal.selected = f)">
+              <div class="d-flex align-items-center gap-2 overflow-hidden">
+                <span class="fw-semibold flex-shrink-0" :style="`min-width:60px;font-size:0.75rem;color:${f.quantColor}`" x-text="f.quant || '—'"></span>
+                <span class="text-truncate" :class="f.shard ? 'text-secondary' : ''" x-text="f.name.split('/').pop()"></span>
+                <span x-show="f.shard" class="flex-shrink-0 badge text-bg-secondary" style="font-size:0.6rem">sharded</span>
+                <span x-show="f.recommended" class="flex-shrink-0" style="font-size:0.75rem" title="Recommended sweet spot">⭐</span>
+              </div>
+              <span class="flex-shrink-0 ms-3 fw-semibold" x-show="f.size" style="font-size:0.75rem;color:var(--bs-body-color)" x-text="fmtBytes(f.size)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="$store.nf.hfModal.selected">
+      <button class="btn btn-success btn-sm w-100"
+        @click="$store.nf.hfDownload()"
+        :disabled="$store.nf.hfModal.downloading">
+        <i class="bi bi-download me-1"></i>
+        <span x-show="!$store.nf.hfModal.downloading" x-text="`Download ${$store.nf.hfModal.selected.name.split('/').pop()}`"></span>
+        <span x-show="$store.nf.hfModal.downloading">Starting…</span>
+      </button>
+    </template>
+
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>

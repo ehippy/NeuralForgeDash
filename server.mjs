@@ -399,18 +399,46 @@ function hfParseUrl(input) {
   return null;
 }
 
+const QUANT_COLORS = {
+  F32:'#adb5bd', BF16:'#adb5bd', F16:'#adb5bd',
+  Q8_0:'#4dabce', Q8_K_XL:'#4dabce', Q6_K:'#4dabce', Q6_K_S:'#4dabce', Q6_K_XL:'#4dabce',
+  Q5_K_M:'#20c997', Q5_K_S:'#20c997', Q5_K_XL:'#20c997', Q5_0:'#20c997', Q5_1:'#20c997',
+  Q4_K_M:'#7ecb7e', Q4_K_S:'#7ecb7e', Q4_K_L:'#7ecb7e', Q4_K_XL:'#7ecb7e', Q4_0:'#7ecb7e', Q4_1:'#7ecb7e',
+  Q3_K_M:'#fd7e14', Q3_K_S:'#fd7e14', Q3_K_L:'#fd7e14', Q3_K_XL:'#fd7e14',
+  Q2_K:'#dc3545', Q2_K_XL:'#dc3545',
+};
+function quantColor(q) {
+  if (!q) return '#6c757d';
+  if (QUANT_COLORS[q]) return QUANT_COLORS[q];
+  if (q.startsWith('IQ')) return '#c084fc';
+  if (q.startsWith('Q8') || q.startsWith('Q6')) return '#4dabce';
+  if (q.startsWith('Q5')) return '#20c997';
+  if (q.startsWith('Q4')) return '#7ecb7e';
+  if (q.startsWith('Q3')) return '#fd7e14';
+  if (q.startsWith('Q2')) return '#dc3545';
+  return '#6c757d';
+}
+
 async function hfRepoFiles(repoId) {
-  const url = `${HF_API}/models/${repoId}`;
+  const url = `${HF_API}/models/${repoId}?blobs=true`;
   const res = await fetch(url, { headers: hfHeaders(), signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`HF fetch failed: ${res.status}`);
   const data = await res.json();
   return (data.siblings || [])
     .filter(f => f.rfilename.endsWith('.gguf'))
-    .map(f => ({
-      name: f.rfilename,
-      size: f.size || null,
-      quant: hfParseQuant(f.rfilename),
-    }));
+    .map(f => {
+      const quant = hfParseQuant(f.rfilename);
+      const shardMatch = f.rfilename.match(/-(\d{5})-of-(\d{5})\.gguf$/);
+      const shard = shardMatch ? { part: parseInt(shardMatch[1]), total: parseInt(shardMatch[2]) } : null;
+      return {
+        name: f.rfilename,
+        size: f.size || null,
+        quant,
+        quantColor: quantColor(quant),
+        shard,
+        recommended: quant === 'Q4_K_M',
+      };
+    });
 }
 
 // active + recently finished downloads, keyed by "repoId/filename"

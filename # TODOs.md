@@ -6,3 +6,4 @@
   - openclaw
   - etc?
 - allow users to tune the model model params in the ui like context size, parallel, etc from the dash
+- needs a good base url
