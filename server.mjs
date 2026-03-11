@@ -31,8 +31,17 @@ async function killOrphans() {
 const PORT = parseInt(process.env.PORT || '5757');
 const MODELS_DIR = process.env.MODELS_DIR || join(process.env.HOME, 'models');
 const LLAMA_BIN = process.env.LLAMA_BIN || join(process.env.HOME, '.local/bin/llama-server');
-const AUTOSTART_ALIAS = process.env.AUTOSTART_ALIAS || '';
-const LLAMA_PORT = 8081;
+
+const PORT_BASE = 8081; // first port to assign; models can pin their own port in models.json
+
+// Assign the next free port >= PORT_BASE, skipping ports already in use by running managers.
+function assignPort(aliasConfig) {
+  if (aliasConfig.port) return aliasConfig.port;
+  const usedPorts = new Set([...managers.values()].map(m => m.port).filter(Boolean));
+  let p = PORT_BASE;
+  while (usedPorts.has(p)) p++;
+  return p;
+}
 
 function readConfig() {
   return JSON.parse(readFileSync(join(__dirname, 'models.json'), 'utf8'));
@@ -58,6 +67,7 @@ class LlamaManager {
     this.alias = null;
     this.modelName = null;
     this.startTime = null;
+    this.port = null;
     this.logs = new LogBuffer(100);
     this.switching = false;
   }
@@ -67,14 +77,14 @@ class LlamaManager {
     const aliasConfig = config.aliases[alias];
     if (!aliasConfig) throw new Error(`Unknown alias: ${alias}`);
 
-    if (this.proc) await this.stop();
-    await killOrphans();
+    // No stop-others here — the pool manages multiple instances.
+    // killOrphans() is only called once at boot.
 
     const d = config.defaults;
     const modelPath = aliasConfig.model.replace('~', process.env.HOME);
     const ctx = aliasConfig.ctx || 32768;
     const parallel = aliasConfig.parallel || d.parallel;
-    const port = aliasConfig.port || d.port;
+    const port = assignPort(aliasConfig);
     const gpuLayers = aliasConfig.gpuLayers ?? d.gpuLayers;
 
     const args = [
@@ -113,6 +123,10 @@ class LlamaManager {
         this.alias = null;
         this.modelName = null;
         this.startTime = null;
+        this.port = null;
+        // Remove from pool so the instance doesn't appear as a dead entry
+        managers.delete(alias);
+        broadcastSSE({ type: 'stopped', alias });
       }
     });
 
@@ -120,8 +134,9 @@ class LlamaManager {
     this.alias = alias;
     this.modelName = aliasConfig.name;
     this.startTime = Date.now();
+    this.port = port;
 
-    return { pid: proc.pid, model: aliasConfig.name };
+    return { pid: proc.pid, model: aliasConfig.name, port };
   }
 
   async stop() {
@@ -146,7 +161,8 @@ class LlamaManager {
       });
     });
     this.proc = null;
-    await waitPortFree(LLAMA_PORT, 10000);
+    await waitPortFree(this.port, 10000);
+    this.port = null;
   }
 
   status() {
@@ -157,6 +173,7 @@ class LlamaManager {
       alias: this.alias,
       model: this.modelName,
       pid: this.proc?.pid || null,
+      port: this.port,
       uptime,
       switching: this.switching,
     };
@@ -164,9 +181,9 @@ class LlamaManager {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-async function checkHealth() {
+async function checkHealth(port = PORT_BASE) {
   try {
-    const res = await fetch(`http://localhost:${LLAMA_PORT}/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(`http://localhost:${port}/health`, { signal: AbortSignal.timeout(2000) });
     return res.ok;
   } catch { return false; }
 }
@@ -174,7 +191,7 @@ async function checkHealth() {
 async function waitPortFree(port, timeout = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const free = !(await checkHealth());
+    const free = !(await checkHealth(port));
     if (free) return;
     await new Promise(r => setTimeout(r, 500));
   }
@@ -231,9 +248,9 @@ async function getGpuStats() {
   };
 }
 
-async function getLlamaMetrics() {
+async function getLlamaMetrics(port = PORT_BASE) {
   try {
-    const res = await fetch(`http://localhost:${LLAMA_PORT}/metrics`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`http://localhost:${port}/metrics`, { signal: AbortSignal.timeout(1500) });
     if (!res.ok) return null;
     const text = await res.text();
 
@@ -476,9 +493,16 @@ function broadcastSSE(data) {
   }
 }
 
-// ── Main server ───────────────────────────────────────────────────────────────
-const manager = new LlamaManager();
+// ── Manager pool ─────────────────────────────────────────────────────────────
+// Map<alias, LlamaManager> — each running model has its own manager instance.
+const managers = new Map();
 
+function getManager(alias) {
+  if (!managers.has(alias)) managers.set(alias, new LlamaManager());
+  return managers.get(alias);
+}
+
+// ── Main server ───────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const path = url.pathname;
@@ -504,9 +528,14 @@ const server = createServer(async (req, res) => {
 
   // API routes
   if (path === '/api/status' && req.method === 'GET') {
-    const st = manager.status();
-    const llamaHealth = st.running ? await checkHealth() : false;
-    json(res, { ...st, healthy: llamaHealth });
+    const instanceEntries = await Promise.all(
+      [...managers.entries()].map(async ([alias, m]) => {
+        const st = m.status();
+        const healthy = st.running ? await checkHealth(st.port) : false;
+        return [alias, { ...st, healthy }];
+      })
+    );
+    json(res, { instances: Object.fromEntries(instanceEntries) });
     return;
   }
 
@@ -551,7 +580,10 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/api/logs' && req.method === 'GET') {
-    json(res, { lines: manager.logs.get() });
+    // Merge logs from all running managers, sorted by arrival order (each manager
+    // maintains its own LogBuffer; we concatenate and take the last 200).
+    const all = [...managers.values()].flatMap(m => m.logs.get());
+    json(res, { lines: all.slice(-200) });
     return;
   }
 
@@ -562,14 +594,20 @@ const server = createServer(async (req, res) => {
       try {
         const { alias } = JSON.parse(body || '{}');
         if (!alias) { error(res, 400, 'alias required'); return; }
-        manager.switching = true;
+        const existing = managers.get(alias);
+        if (existing?.proc) {
+          // Already running — return current status, no-op.
+          json(res, { ok: true, alreadyRunning: true, ...existing.status() });
+          return;
+        }
+        const mgr = getManager(alias);
+        mgr.switching = true;
         broadcastSSE({ type: 'switching', alias });
-        const result = await manager.start(alias);
-        manager.switching = false;
-        broadcastSSE({ type: 'started', ...result });
+        const result = await mgr.start(alias);
+        mgr.switching = false;
+        broadcastSSE({ type: 'started', alias, ...result });
         json(res, { ok: true, ...result });
       } catch (e) {
-        manager.switching = false;
         error(res, 500, e.message);
       }
     });
@@ -577,9 +615,20 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/api/stop' && req.method === 'POST') {
-    await manager.stop();
-    broadcastSSE({ type: 'stopped' });
-    json(res, { ok: true });
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { alias } = JSON.parse(body || '{}');
+        if (!alias) { error(res, 400, 'alias required'); return; }
+        const mgr = managers.get(alias);
+        if (!mgr) { json(res, { ok: true, notRunning: true }); return; }
+        await mgr.stop();
+        managers.delete(alias);
+        broadcastSSE({ type: 'stopped', alias });
+        json(res, { ok: true });
+      } catch (e) { error(res, 500, e.message); }
+    });
     return;
   }
 
@@ -614,6 +663,28 @@ const server = createServer(async (req, res) => {
         const key = await startDownload(repoId, filename, meta || {});
         json(res, { ok: true, key });
       } catch (e) { error(res, 400, e.message); }
+    });
+    return;
+  }
+
+  if (path === '/api/models/set-autoload' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { alias, autoLoad } = JSON.parse(body || '{}');
+        if (!alias) { error(res, 400, 'alias required'); return; }
+        const cfgPath = join(__dirname, 'models.json');
+        const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+        if (!cfg.aliases[alias]) { error(res, 404, 'alias not found'); return; }
+        if (autoLoad) {
+          cfg.aliases[alias].autoLoad = true;
+        } else {
+          delete cfg.aliases[alias].autoLoad;
+        }
+        writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+        json(res, { ok: true, alias, autoLoad: !!autoLoad });
+      } catch (e) { error(res, 500, e.message); }
     });
     return;
   }
@@ -702,22 +773,48 @@ function error(res, code, msg) {
 // SSE broadcast loop
 setInterval(async () => {
   if (sseClients.size === 0) return;
-  const [gpu, status, metrics] = await Promise.all([getGpuStats(), Promise.resolve(manager.status()), getLlamaMetrics()]);
-  broadcastSSE({ type: 'update', gpu, status, metrics });
+  const gpu = await getGpuStats();
+
+  // Build per-instance statuses and metrics in parallel
+  const instanceEntries = await Promise.all(
+    [...managers.entries()].map(async ([alias, m]) => {
+      const st = m.status();
+      const healthy = st.running ? await checkHealth(st.port) : false;
+      const metrics = st.running ? await getLlamaMetrics(st.port) : null;
+      return [alias, { ...st, healthy, metrics }];
+    })
+  );
+  const statuses = Object.fromEntries(instanceEntries);
+
+  broadcastSSE({ type: 'update', gpu, statuses });
 }, 2000);
 
 // Startup
 server.listen(PORT, async () => {
   console.log(`[neuralforge] Listening on port ${PORT}`);
+
+  // Boot-time orphan sweep — safe here because managers Map is empty.
   await killOrphans();
-  if (AUTOSTART_ALIAS) {
-    console.log(`[neuralforge] Autostarting: ${AUTOSTART_ALIAS}`);
-    setTimeout(() => manager.start(AUTOSTART_ALIAS).catch(console.error), 3000);
+
+  const config = readConfig();
+  const autoAliases = Object.entries(config.aliases)
+    .filter(([, info]) => info.autoLoad)
+    .map(([alias]) => alias);
+
+  if (autoAliases.length > 0) {
+    console.log(`[neuralforge] Autoloading: ${autoAliases.join(', ')}`);
+    setTimeout(() => {
+      Promise.all(autoAliases.map(alias =>
+        getManager(alias).start(alias)
+          .then(r => broadcastSSE({ type: 'started', alias, ...r }))
+          .catch(e => console.error(`[neuralforge] Autoload failed for ${alias}:`, e.message))
+      ));
+    }, 3000);
   }
 });
 
 process.on('SIGTERM', async () => {
   console.log('[neuralforge] Shutting down...');
-  await manager.stop();
+  await Promise.all([...managers.values()].map(m => m.stop()));
   process.exit(0);
 });

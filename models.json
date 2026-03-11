@@ -15,13 +15,25 @@
       "name": "Qwen3-Coder-Next Q8",
       "model": "~/models/Qwen3-Coder-Next/Q8_0/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf",
       "ctx": 131072,
-      "parallel": 3
+      "parallel": 3,
+      "port": 8081,
+      "hfRepoId": "Qwen/Qwen3-Coder-Next",
+      "arch": "qwen",
+      "caps": [
+        "💻 code"
+      ],
+      "pipeline": "text-generation",
+      "hfLikes": 1111,
+      "hfDownloads": 1173790,
+      "hfLastModified": "2026-02-03T16:16:38.000Z",
+      "autoLoad": true
     },
     "qwen3-5-35b-a3b-mxfp": {
       "name": "Qwen3.5-35B-A3B-GGUF",
       "model": "/home/pmcdavid/models/unsloth--Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-MXFP4_MOE.gguf",
       "ctx": 32768,
-      "parallel": 2
+      "parallel": 2,
+      "port": 8082
     }
   }
 }

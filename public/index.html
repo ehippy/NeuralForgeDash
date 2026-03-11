@@ -29,6 +29,8 @@
   .model-card.active { border-color: #00d4aa; }
   .model-card.last-active { border-color: #555566; }
   .model-card:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-teal { background-color: #00d4aa; border-color: #00d4aa; color: #0d0d0f; }
+  .btn-teal:hover { background-color: #00b894; border-color: #00b894; color: #0d0d0f; }
 </style>
 </head>
 <body>
@@ -47,9 +49,7 @@
       <span id="statusText">CONNECTING...</span>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopModel()" disabled>Stop</button>
       <a class="btn btn-outline-secondary btn-sm" href="http://localhost:3000" target="_blank">Open WebUI</a>
-      <a class="btn btn-outline-secondary btn-sm" href="http://localhost:8081/docs" target="_blank">API Docs</a>
     </div>
   </div>
 </header>
@@ -117,31 +117,8 @@
 
     <div class="col-12 col-lg-4">
       <div class="bg-dark border border-secondary rounded-3 p-3">
-        <div class="font-10 letter-spacing text-secondary mb-3">MODEL</div>
-        <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-secondary">Name</span>
-          <span class="font-11 text-teal" id="modelName">—</span>
-        </div>
-        <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-secondary">Port</span>
-          <span class="font-11">8081</span>
-        </div>
-        <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-secondary">Uptime</span>
-          <span class="font-11" id="modelUptime">—</span>
-        </div>
-        <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-secondary">Throughput</span>
-          <span class="font-11" id="modelTps">—</span>
-        </div>
-        <div class="d-flex justify-content-between font-11 mb-2">
-          <span class="text-secondary">Active reqs</span>
-          <span class="font-11" id="modelProcessing">—</span>
-        </div>
-        <div class="d-flex justify-content-between font-11">
-          <span class="text-secondary">PID</span>
-          <span class="font-11" id="modelPid">—</span>
-        </div>
+        <div class="font-10 letter-spacing text-secondary mb-3">RUNNING MODELS</div>
+        <div id="instanceList"><span class="font-11 text-secondary">—</span></div>
       </div>
     </div>
 
@@ -149,13 +126,7 @@
       <div class="bg-dark border border-secondary rounded-3 p-3">
         <div class="font-10 letter-spacing text-secondary mb-3">READY TO WORK</div>
         <div class="font-11 text-secondary">
-          <div class="mb-2">Model loaded: <span class="font-11" id="readyModel">—</span></div>
-          <div class="mb-2">Context size: <span class="font-11" id="readyCtx">—</span></div>
-          <div class="mb-2">GPU layers: <span class="font-11" id="readyGpuLayers">—</span></div>
-          <div class="mb-2">Parallel: <span class="font-11" id="readyParallel">—</span></div>
-          <div class="mb-2">Server: <span class="font-11">http://localhost:8081</span></div>
-          <div class="mb-2">Open WebUI: <a href="http://localhost:3000" class="text-teal text-decoration-none">http://localhost:3000</a></div>
-          <div>API Docs: <a href="http://localhost:8081/docs" class="text-teal text-decoration-none">http://localhost:8081/docs</a></div>
+          <div id="readyList"><span class="font-11 text-secondary">—</span></div>
         </div>
       </div>
     </div>
@@ -171,27 +142,21 @@
 
 <div class="overlay" id="confirmOverlay">
   <div class="dialog">
-    <h3 class="font-14 mb-3">Switch Model</h3>
-    <p class="font-12 mb-4 text-secondary" id="confirmText">This will stop the current model and load a new one. The server will be unavailable for ~30 seconds.</p>
+    <h3 class="font-14 mb-3">Load Model</h3>
+    <p class="font-12 mb-4 text-secondary" id="confirmText"></p>
     <div class="d-flex justify-content-end gap-2">
       <button class="btn btn-secondary btn-sm" onclick="closeConfirm()">Cancel</button>
-      <button class="btn btn-teal btn-sm" id="confirmBtn">Switch</button>
+      <button class="btn btn-teal btn-sm" id="confirmBtn">Load</button>
     </div>
   </div>
 </div>
 
 <script>
-let state = {
-  running: false,
-  alias: null,
-  model: null,
-  switching: false,
-  uptime: 0,
-};
+// instances: { alias: { running, alias, model, pid, port, uptime, switching, healthy, metrics } }
+let instances = {};
 let models = { aliases: {}, discovered: [] };
 let pendingAlias = null;
-let lastAlias = null;
-let uptimeTimer = null;
+const uptimeTimers = new Map(); // alias -> intervalId
 const MAX_LOG_LINES = 200;
 
 // ── Reactive favicon sparkline ────────────────────────────────────────────────
@@ -259,11 +224,10 @@ async function loadModels() {
 async function refresh() {
   try {
     const [statusR, gpuR] = await Promise.all([fetch('/api/status'), fetch('/api/gpu')]);
-    const status = await statusR.json();
+    const statusData = await statusR.json();
     const gpu = await gpuR.json();
-    updateStatus(status);
+    updateInstances(statusData.instances || {});
     updateGpu(gpu);
-    updateReady(status);
   } catch {}
 }
 
@@ -299,16 +263,23 @@ function connectSSE() {
   es.onmessage = e => {
     const data = JSON.parse(e.data);
     if (data.type === 'update') {
-      updateStatus(data.status);
+      updateInstances(data.statuses || {});
       updateGpu(data.gpu);
-      if (data.metrics) updateMetrics(data.metrics);
     } else if (data.type === 'switching') {
-      setSwitching(true, data.alias);
-    } else if (data.type === 'started' || data.type === 'stopped') {
-      setSwitching(false);
+      // Mark the specific alias as switching while it loads
+      instances[data.alias] = { ...(instances[data.alias] || {}), switching: true, alias: data.alias };
+      updateModelButtonStates();
+      updateStatusBadge();
+    } else if (data.type === 'started') {
       refresh();
       loadModels();
-      updateReady(state);
+    } else if (data.type === 'stopped') {
+      delete instances[data.alias];
+      stopUptimeTimer(data.alias);
+      updateModelButtonStates();
+      updateStatusBadge();
+      renderInstanceList();
+      renderReadyPanel();
       loadLogs();
     } else if (data.type === 'hf-progress') {
       updateHFProgress(data.key, data.bytes, data.total);
@@ -322,49 +293,128 @@ function connectSSE() {
   es.onerror = () => setTimeout(connectSSE, 5000);
 }
 
-function updateStatus(s) {
-  state = { ...state, ...s };
+function updateInstances(newStatuses) {
+  // Merge in new statuses; preserve local switching flags for in-flight starts.
+  for (const [alias, st] of Object.entries(newStatuses)) {
+    const prev = instances[alias] || {};
+    instances[alias] = { ...st, metrics: st.metrics || prev.metrics };
+  }
+  // Remove instances that are no longer running and not switching
+  for (const alias of Object.keys(instances)) {
+    if (!newStatuses[alias] && !instances[alias].switching) {
+      delete instances[alias];
+      stopUptimeTimer(alias);
+    }
+  }
+  // Sync uptime timers
+  for (const [alias, st] of Object.entries(instances)) {
+    if (st.running && !uptimeTimers.has(alias)) {
+      uptimeTimers.set(alias, setInterval(() => {
+        if (instances[alias]) instances[alias].uptime = (instances[alias].uptime || 0) + 1;
+        renderInstanceList();
+      }, 1000));
+    } else if (!st.running) {
+      stopUptimeTimer(alias);
+    }
+  }
+  updateStatusBadge();
+  updateModelButtonStates();
+  renderInstanceList();
+  renderReadyPanel();
+}
 
+function stopUptimeTimer(alias) {
+  if (uptimeTimers.has(alias)) {
+    clearInterval(uptimeTimers.get(alias));
+    uptimeTimers.delete(alias);
+  }
+}
+
+function updateStatusBadge() {
   const badge = document.getElementById('statusBadge');
   const dot = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
-
   badge.className = 'badge';
   dot.className = 'dot';
 
-  if (s.switching) {
+  const allInstances = Object.values(instances);
+  const anySwitching = allInstances.some(s => s.switching);
+  const runningList = allInstances.filter(s => s.running);
+
+  if (anySwitching) {
     badge.style.borderColor = '#ffa502';
     badge.style.color = '#ffa502';
     dot.classList.add('pulse');
-    text.textContent = 'SWITCHING...';
-  } else if (s.running) {
+    text.textContent = 'LOADING...';
+  } else if (runningList.length > 0) {
     badge.style.borderColor = '#00d4aa';
     badge.style.color = '#00d4aa';
-    text.textContent = `● ${s.model || 'RUNNING'}`;
-    lastAlias = s.alias;
+    text.textContent = runningList.length === 1
+      ? `● ${runningList[0].model || 'RUNNING'}`
+      : `● ${runningList.length} RUNNING`;
   } else {
     badge.style.borderColor = '#888899';
     badge.style.color = '#888899';
     text.textContent = 'STOPPED';
   }
+}
 
-  document.getElementById('modelName').textContent = s.model || '—';
-  document.getElementById('modelPid').textContent = s.pid || '—';
-  document.getElementById('modelUptime').textContent = s.running ? fmtUptime(s.uptime) : '—';
-
-  document.getElementById('stopBtn').disabled = !s.running || s.switching;
-  
-  if (s.running && !uptimeTimer) {
-    uptimeTimer = setInterval(() => {
-      state.uptime++;
-      document.getElementById('modelUptime').textContent = fmtUptime(state.uptime);
-    }, 1000);
-  } else if (!s.running && uptimeTimer) {
-    clearInterval(uptimeTimer);
-    uptimeTimer = null;
+function renderInstanceList() {
+  const el = document.getElementById('instanceList');
+  const running = Object.values(instances).filter(s => s.running || s.switching);
+  if (running.length === 0) {
+    el.innerHTML = '<span class="font-11 text-secondary">—</span>';
+    return;
   }
+  el.innerHTML = '';
+  for (const s of running) {
+    const row = document.createElement('div');
+    row.className = 'mb-2 pb-2';
+    row.style.borderBottom = '1px solid #22223a';
+    row.innerHTML = [
+      `<div class="d-flex justify-content-between font-11 mb-1">`,
+        `<span class="text-teal">${s.model || s.alias || '—'}</span>`,
+        `<span class="font-10 text-secondary">:${s.port || '?'}</span>`,
+      `</div>`,
+      `<div class="d-flex gap-3 font-10 text-secondary">`,
+        `<span>uptime ${s.switching ? '…' : fmtUptime(s.uptime || 0)}</span>`,
+        s.metrics?.tps ? `<span>${s.metrics.tps} t/s</span>` : '',
+        s.metrics?.processing != null ? `<span>${s.metrics.processing} reqs</span>` : '',
+        `<span>pid ${s.pid || '—'}</span>`,
+      `</div>`,
+    ].join('');
+    el.appendChild(row);
+  }
+  // Trim last border
+  if (el.lastChild) el.lastChild.style.borderBottom = 'none';
+}
 
-  updateModelButtonStates(s.alias);
+function renderReadyPanel() {
+  const el = document.getElementById('readyList');
+  const running = Object.values(instances).filter(s => s.running);
+  if (running.length === 0) {
+    el.innerHTML = '<span class="font-11 text-secondary">—</span>';
+    return;
+  }
+  el.innerHTML = '';
+  for (const s of running) {
+    const cfg = models.aliases?.[s.alias] || {};
+    const port = s.port;
+    const div = document.createElement('div');
+    div.className = 'mb-3 pb-2';
+    div.style.borderBottom = '1px solid #22223a';
+    const lines = [
+      `<div class="mb-1 font-11 text-teal">${s.model || s.alias} <span class="font-10 text-secondary">:${port}</span></div>`,
+      `<div class="mb-1">Context: <span class="font-11">${fmtCtx(cfg.ctx || 32768)}</span></div>`,
+      `<div class="mb-1">GPU layers: <span class="font-11">${cfg.gpuLayers ?? 'auto'}</span></div>`,
+      `<div class="mb-1">Parallel: <span class="font-11">${cfg.parallel || 2}</span></div>`,
+      `<div class="mb-1">Server: <a href="http://localhost:${port}" class="text-teal text-decoration-none">localhost:${port}</a></div>`,
+      `<div>API Docs: <a href="http://localhost:${port}/docs" class="text-teal text-decoration-none">localhost:${port}/docs</a></div>`,
+    ];
+    div.innerHTML = lines.join('');
+    el.appendChild(div);
+  }
+  if (el.lastChild) el.lastChild.style.borderBottom = 'none';
 }
 
 function setBar(barId, valId, displayVal, suffix, usePctForColor, pctOverride) {
@@ -401,34 +451,7 @@ function updateGpu(g) {
 
 
 
-function updateMetrics(m) {
-  if (!m) return;
-  document.getElementById('modelTps').textContent = m.tps ? `${m.tps} t/s avg` : '—';
-  document.getElementById('modelProcessing').textContent = m.processing != null ? m.processing : '—';
-}
 
-function updateReady(status) {
-  const alias = status.alias;
-  if (alias && models.aliases[alias]) {
-    const cfg = models.aliases[alias];
-    document.getElementById('readyModel').textContent = cfg.name;
-    document.getElementById('readyCtx').textContent = cfg.ctx || '32768';
-    document.getElementById('readyGpuLayers').textContent = cfg.gpuLayers ?? 'auto';
-    document.getElementById('readyParallel').textContent = cfg.parallel || '2';
-  } else {
-    document.getElementById('readyModel').textContent = '—';
-    document.getElementById('readyCtx').textContent = '—';
-    document.getElementById('readyGpuLayers').textContent = '—';
-    document.getElementById('readyParallel').textContent = '—';
-  }
-}
-
-function setSwitching(on, alias) {
-  state.switching = on;
-  const allBtns = document.querySelectorAll('.model-btn');
-  allBtns.forEach(b => b.disabled = on);
-  document.getElementById('stopBtn').disabled = on;
-}
 
 function fmtCtx(n) {
   if (!n) return '—';
@@ -443,7 +466,10 @@ function renderModelButtons() {
     const card = document.createElement('button');
     card.className = 'model-btn model-card';
     card.dataset.alias = alias;
-    card.onclick = () => confirmSwitch(alias, info.name);
+    card.onclick = () => {
+      if (instances[alias]?.running) return; // no-op: already loaded
+      confirmStart(alias, info.name);
+    };
 
     // ── top row: dot indicator + alias + start hint + size
     const topRow = document.createElement('div');
@@ -540,10 +566,58 @@ function renderModelButtons() {
     if (info.pipeline) parts.push(info.pipeline.replace('text-generation', 'text-gen').replace(/-/g, ' '));
     paramEl.textContent = parts.join(' · ');
 
+    // ── per-card stop button (shown when running)
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'card-stop-btn font-10';
+    stopBtn.title = `Stop ${alias}`;
+    stopBtn.style.cssText = 'display:none;background:none;border:1px solid #553333;border-radius:3px;color:#ff6b6b;cursor:pointer;padding:1px 5px;margin-top:4px;width:100%';
+    stopBtn.textContent = '■ stop';
+    stopBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      stopBtn.disabled = true;
+      stopBtn.textContent = '…';
+      try {
+        await fetch('/api/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias }),
+        });
+      } catch {}
+    });
+
+    // ── autoload toggle row
+    const autoRow = document.createElement('div');
+    autoRow.style.cssText = 'display:flex;align-items:center;gap:5px;margin-top:5px';
+    autoRow.addEventListener('click', e => e.stopPropagation());
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.id = `autoload-${alias}`;
+    chk.checked = !!info.autoLoad;
+    chk.style.cssText = 'accent-color:#00d4aa;cursor:pointer;width:11px;height:11px';
+    chk.addEventListener('change', async () => {
+      try {
+        const r = await fetch('/api/models/set-autoload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias, autoLoad: chk.checked }),
+        });
+        if (!r.ok) { chk.checked = !chk.checked; }
+      } catch { chk.checked = !chk.checked; }
+    });
+    const chkLabel = document.createElement('label');
+    chkLabel.htmlFor = `autoload-${alias}`;
+    chkLabel.className = 'font-10';
+    chkLabel.style.cssText = 'color:#555577;cursor:pointer;margin:0';
+    chkLabel.textContent = 'autoload';
+    autoRow.appendChild(chk);
+    autoRow.appendChild(chkLabel);
+
     // ── capability badges
     card.appendChild(topRow);
     card.appendChild(nameEl);
     card.appendChild(paramEl);
+    card.appendChild(autoRow);
+    card.appendChild(stopBtn);
     if (info.caps && info.caps.length) {
       const capRow = document.createElement('div');
       capRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin-top:3px';
@@ -582,44 +656,42 @@ function renderModelButtons() {
   }
 }
 
-function updateModelButtonStates(currentAlias) {
-  const isStopped = !state.running && !state.switching;
+function updateModelButtonStates() {
   document.querySelectorAll('.model-btn[data-alias]').forEach(card => {
     const alias = card.dataset.alias;
-    const isRunning = state.running && alias === currentAlias;
-    const isLastStopped = isStopped && alias === lastAlias;
-    card.disabled = state.switching;
+    const inst = instances[alias];
+    const isRunning = inst?.running === true;
+    const isSwitching = inst?.switching === true;
+
+    // Only disable the card that is actively loading; others stay clickable.
+    card.disabled = isSwitching;
     card.classList.toggle('active', isRunning);
-    card.classList.toggle('last-active', !isRunning && isLastStopped);
+    card.classList.remove('last-active');
+
     const dot = card.querySelector('.dot');
     if (dot) dot.style.display = isRunning ? 'inline-block' : 'none';
     const hint = card.querySelector('.start-hint');
-    if (hint) hint.style.display = isLastStopped ? 'inline' : 'none';
+    if (hint) hint.style.display = 'none';
+    const stopBtn = card.querySelector('.card-stop-btn');
+    if (stopBtn) stopBtn.style.display = isRunning ? 'block' : 'none';
   });
-  updateReady(state);
 }
 
-function confirmSwitch(alias, name) {
-  if (state.switching) return;
-  if (alias === state.alias && state.running) return;
-
+function confirmStart(alias, name) {
   pendingAlias = alias;
-  const isRestart = !state.running && alias === lastAlias;
-  document.getElementById('confirmText').textContent =
-    state.running
-      ? `Stop current model and load "${name}"? (~30s downtime)`
-      : isRestart
-        ? `Start "${name}" again?`
-        : `Load "${name}"?`;
-  document.getElementById('confirmBtn').onclick = doSwitch;
+  document.getElementById('confirmText').textContent = `Load "${name}"?`;
+  document.getElementById('confirmBtn').onclick = doStart;
   document.getElementById('confirmOverlay').classList.add('open');
 }
 
-async function doSwitch() {
+async function doStart() {
   closeConfirm();
   if (!pendingAlias) return;
+  // Optimistically mark as switching so the card disables immediately.
+  instances[pendingAlias] = { ...(instances[pendingAlias] || {}), switching: true, alias: pendingAlias };
+  updateModelButtonStates();
+  updateStatusBadge();
   try {
-    setSwitching(true);
     await fetch('/api/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -627,14 +699,11 @@ async function doSwitch() {
     });
   } catch(e) {
     console.error(e);
-    setSwitching(false);
+    delete instances[pendingAlias];
+    updateModelButtonStates();
+    updateStatusBadge();
   }
   pendingAlias = null;
-}
-
-async function stopModel() {
-  if (!confirm('Stop the running model?')) return;
-  await fetch('/api/stop', { method: 'POST' });
 }
 
 function closeConfirm() {
