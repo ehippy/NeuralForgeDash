@@ -99,7 +99,12 @@ class LlamaManager {
     const ctx = aliasConfig.ctx || 32768;
     const parallel = aliasConfig.parallel || d.parallel;
     const port = assignPort(aliasConfig);
-    const gpuLayers = aliasConfig.gpuLayers ?? d.gpuLayers;
+    const gpuLayers  = aliasConfig.gpuLayers  ?? d.gpuLayers;
+    const batchSize  = aliasConfig.batchSize  ?? d.batchSize;
+    const ubatchSize = aliasConfig.ubatchSize ?? d.ubatchSize;
+    const flashAttn  = aliasConfig.flashAttn  ?? d.flashAttn;
+    const cacheTypeK = aliasConfig.cacheTypeK  ?? d.cacheTypeK;
+    const cacheTypeV = aliasConfig.cacheTypeV  ?? d.cacheTypeV;
 
     const args = [
       '--model', modelPath,
@@ -113,7 +118,11 @@ class LlamaManager {
     if (d.noMmap) args.push('--no-mmap');
     if (d.noWarmup) args.push('--no-warmup');
     if (d.metrics) args.push('--metrics');
-    if (d.ubatchSize) args.push('--ubatch-size', String(d.ubatchSize));
+    if (batchSize)  args.push('--batch-size',  String(batchSize));
+    if (ubatchSize) args.push('--ubatch-size', String(ubatchSize));
+    if (flashAttn !== undefined) args.push('--flash-attn', flashAttn ? 'on' : 'off');
+    if (cacheTypeK) args.push('--cache-type-k', cacheTypeK);
+    if (cacheTypeV) args.push('--cache-type-v', cacheTypeV);
 
     const env = { ...process.env, LD_LIBRARY_PATH: `${process.env.HOME}/.local/bin:${process.env.LD_LIBRARY_PATH || ''}` };
 
@@ -787,6 +796,34 @@ const server = createServer(async (req, res) => {
           }
         }
         json(res, { ok: true, alias });
+      } catch (e) { error(res, 500, e.message); }
+    });
+    return;
+  }
+
+  if (path === '/api/models/update' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { alias, name, ctx, parallel, gpuLayers, batchSize, ubatchSize, flashAttn, cacheTypeK, cacheTypeV } = JSON.parse(body || '{}');
+        if (!alias) { error(res, 400, 'alias required'); return; }
+        const cfgPath = join(__dirname, 'models.json');
+        const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+        if (!cfg.aliases[alias]) { error(res, 404, 'alias not found'); return; }
+        const entry = cfg.aliases[alias];
+        const CACHE_TYPES = ['f16', 'q8_0', 'q5_0', 'q4_0'];
+        if (name       !== undefined) entry.name       = String(name).slice(0, 120);
+        if (ctx        !== undefined) entry.ctx        = Math.max(512, Math.min(1048576, parseInt(ctx, 10) || entry.ctx));
+        if (parallel   !== undefined) entry.parallel   = Math.max(1, Math.min(32, parseInt(parallel, 10) || entry.parallel));
+        if (gpuLayers  !== undefined) entry.gpuLayers  = Math.max(0, parseInt(gpuLayers, 10) || 0);
+        if (batchSize  !== undefined) entry.batchSize  = Math.max(32, Math.min(65536, parseInt(batchSize, 10) || 512));
+        if (ubatchSize !== undefined) entry.ubatchSize = Math.max(32, Math.min(65536, parseInt(ubatchSize, 10) || 512));
+        if (flashAttn  !== undefined) entry.flashAttn  = Boolean(flashAttn);
+        if (cacheTypeK !== undefined && CACHE_TYPES.includes(cacheTypeK)) entry.cacheTypeK = cacheTypeK;
+        if (cacheTypeV !== undefined && CACHE_TYPES.includes(cacheTypeV)) entry.cacheTypeV = cacheTypeV;
+        writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+        json(res, { ok: true, alias, entry });
       } catch (e) { error(res, 500, e.message); }
     });
     return;

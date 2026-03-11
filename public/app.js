@@ -162,6 +162,7 @@ document.addEventListener('alpine:init', () => {
     _uptimeTimers: new Map(),
     hfModal: { open: false, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false },
     hfDownloads: {},   // key -> { key, repoId, filename, bytes, total, done, error }
+    editModal: { open: false, alias: null, name: '', ctx: 32768, parallel: 2, saving: false, error: null },
 
     get runningList() {
       return Object.values(this.instances).filter(s => s.running);
@@ -284,6 +285,46 @@ document.addEventListener('alpine:init', () => {
     openHFModal() {
       this.hfModal = { open: true, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false };
       setTimeout(() => document.getElementById('hfModalInput')?.focus(), 50);
+    },
+
+    openEdit(alias, info) {
+      this.editModal = {
+        open: true, alias,
+        name: info.name || alias,
+        ctx: info.ctx || 32768,
+        parallel: info.parallel || 2,
+        gpuLayers: info.gpuLayers ?? 999,
+        batchSize: info.batchSize ?? 512,
+        ubatchSize: info.ubatchSize ?? 512,
+        flashAttn: info.flashAttn ?? true,
+        cacheTypeK: info.cacheTypeK ?? 'q8_0',
+        cacheTypeV: info.cacheTypeV ?? 'q8_0',
+        saving: false, error: null,
+      };
+      setTimeout(() => document.getElementById('editModalName')?.focus(), 50);
+    },
+
+    async saveEdit() {
+      const { alias, name, ctx, parallel, gpuLayers, batchSize, ubatchSize, flashAttn, cacheTypeK, cacheTypeV } = this.editModal;
+      this.editModal.saving = true;
+      this.editModal.error = null;
+      try {
+        const r = await fetch('/api/models/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alias, name: name.trim(), ctx: +ctx, parallel: +parallel,
+            gpuLayers: +gpuLayers, batchSize: +batchSize, ubatchSize: +ubatchSize, flashAttn, cacheTypeK, cacheTypeV }),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.editModal.error = d.error || 'Save failed'; return; }
+        const mr = await fetch('/api/models');
+        this.models = await mr.json();
+        this.editModal.open = false;
+      } catch (e) {
+        this.editModal.error = e.message;
+      } finally {
+        this.editModal.saving = false;
+      }
     },
 
     async hfFetch() {

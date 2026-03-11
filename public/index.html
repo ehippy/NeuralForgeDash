@@ -22,6 +22,8 @@
   #aliasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
   [x-cloak] { display: none !important; }
   .hf-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:1050; display:flex; align-items:center; justify-content:center; padding:1rem; }
+  .help-icon { font-size:0.7rem; opacity:0.55; cursor:help; vertical-align:middle; margin-left:3px; }
+  .help-icon:hover { opacity:1; }
 </style>
 </head>
 <body x-data>
@@ -166,6 +168,11 @@
                 :title="`Load ${alias}`"
                 @click.stop="$store.nf.confirmStart(alias, info.name)"><i class="bi bi-play-fill"></i> Load</button>
               <button
+                class="btn btn-sm btn-outline-secondary"
+                style="font-size:0.78rem"
+                title="Edit model params"
+                @click.stop="$store.nf.openEdit(alias, info)"><i class="bi bi-pencil"></i></button>
+              <button
                 class="btn btn-sm btn-outline-danger"
                 style="font-size:0.78rem"
                 title="Delete model"
@@ -227,6 +234,119 @@
   </div>
 
 </main>
+
+<!-- Edit Model Modal -->
+<div class="hf-backdrop" x-show="$store.nf.editModal.open" x-cloak
+  @keydown.escape.window="$store.nf.editModal.open = false"
+  @click.self="$store.nf.editModal.open = false">
+  <div class="bg-dark border border-secondary rounded p-4" style="width:100%;max-width:420px;display:flex;flex-direction:column;gap:1rem">
+
+    <div class="d-flex align-items-center justify-content-between">
+      <h6 class="mb-0 fw-semibold"><i class="bi bi-pencil me-2"></i>Edit Model Params</h6>
+      <button class="btn-close btn-close-white btn-sm" @click="$store.nf.editModal.open = false"></button>
+    </div>
+
+    <div class="text-secondary" style="font-size:0.78rem" x-text="$store.nf.editModal.alias"></div>
+
+    <div class="d-flex flex-column gap-3">
+      <div>
+        <label class="form-label text-secondary mb-1" style="font-size:0.75rem">Display name <i class="bi bi-question-circle help-icon" title="Human-readable label shown in the dashboard."></i></label>
+        <input id="editModalName" type="text"
+          class="form-control form-control-sm bg-dark text-light border-secondary"
+          x-model="$store.nf.editModal.name"
+          @keydown.enter="$store.nf.saveEdit()"
+          maxlength="120">
+      </div>
+      <!-- row 1: ctx + parallel -->
+      <div class="d-flex gap-3">
+        <div class="flex-grow-1">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">Context size <i class="bi bi-question-circle help-icon" title="Maximum token window (prompt + output). Larger = more GTT memory. 32k is a safe default; 131k needs ~20 GB extra GTT over 32k."></i></label>
+          <select class="form-select form-select-sm bg-dark text-light border-secondary"
+            x-model.number="$store.nf.editModal.ctx">
+            <option value="2048">2 048</option>
+            <option value="4096">4 096</option>
+            <option value="8192">8 192</option>
+            <option value="16384">16 384</option>
+            <option value="32768">32 768</option>
+            <option value="65536">65 536</option>
+            <option value="131072">131 072</option>
+          </select>
+        </div>
+        <div style="width:100px">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">Parallel slots <i class="bi bi-question-circle help-icon" title="How many simultaneous requests can be in-flight. Each slot reserves (ctx × kv_size) GTT. 2–3 is usually right; more slots = more memory, not more speed."></i></label>
+          <input type="number" min="1" max="32"
+            class="form-control form-control-sm bg-dark text-light border-secondary"
+            x-model.number="$store.nf.editModal.parallel">
+        </div>
+      </div>
+
+      <!-- row 2: GPU layers + batch size + ubatch size -->
+      <div class="d-flex gap-3">
+        <div class="flex-grow-1">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">GPU layers <i class="bi bi-question-circle help-icon" title="Number of transformer layers to offload to the GPU (GTT memory). 999 = offload everything. Lower this if the model OOMs — each layer removed saves a few hundred MB GTT and falls back to CPU."></i></label>
+          <input type="number" min="0" max="999"
+            class="form-control form-control-sm bg-dark text-light border-secondary"
+            x-model.number="$store.nf.editModal.gpuLayers">
+        </div>
+        <div class="flex-grow-1">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">Batch (-b) <i class="bi bi-question-circle help-icon" title="Logical batch: max tokens bundled into one prefill pass across all slots. Larger = faster TTFT on long prompts but one request can monopolize the GPU for that burst. 512 keeps things fair across models."></i></label>
+          <input type="number" min="32" max="65536" step="256"
+            class="form-control form-control-sm bg-dark text-light border-secondary"
+            x-model.number="$store.nf.editModal.batchSize">
+        </div>
+        <div class="flex-grow-1">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">µBatch (-ub) <i class="bi bi-question-circle help-icon" title="Physical micro-batch: actual GPU kernel chunk size, must be ≤ batch. Smaller = more frequent scheduling between parallel slots and other running models. 512 is the sweet spot for multi-model fairness."></i></label>
+          <input type="number" min="32" max="65536" step="256"
+            class="form-control form-control-sm bg-dark text-light border-secondary"
+            x-model.number="$store.nf.editModal.ubatchSize">
+        </div>
+      </div>
+
+      <!-- row 3: KV cache types + flash attn -->
+      <div class="d-flex gap-3 align-items-end">
+        <div class="flex-grow-1">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">KV cache K type <i class="bi bi-question-circle help-icon" title="Quantisation of the Key half of the attention KV cache. q8_0 cuts memory ~50% vs f16 with negligible quality loss. q4_0 cuts it ~75% with a small but noticeable quality hit on long contexts."></i></label>
+          <select class="form-select form-select-sm bg-dark text-light border-secondary"
+            x-model="$store.nf.editModal.cacheTypeK">
+            <option value="f16">f16 — full precision</option>
+            <option value="q8_0">q8_0 — ~½ GTT ⭐</option>
+            <option value="q5_0">q5_0</option>
+            <option value="q4_0">q4_0 — smallest</option>
+          </select>
+        </div>
+        <div class="flex-grow-1">
+          <label class="form-label text-secondary mb-1" style="font-size:0.75rem">KV cache V type <i class="bi bi-question-circle help-icon" title="Quantisation of the Value half of the attention KV cache. Recommended to keep K and V the same type. V is slightly more sensitive to quantisation errors than K."></i></label>
+          <select class="form-select form-select-sm bg-dark text-light border-secondary"
+            x-model="$store.nf.editModal.cacheTypeV">
+            <option value="f16">f16 — full precision</option>
+            <option value="q8_0">q8_0 — ~½ GTT ⭐</option>
+            <option value="q5_0">q5_0</option>
+            <option value="q4_0">q4_0 — smallest</option>
+          </select>
+        </div>
+        <div class="pb-1" style="white-space:nowrap">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="editFlashAttn"
+              x-model="$store.nf.editModal.flashAttn">
+            <label class="form-check-label text-secondary" for="editFlashAttn" style="font-size:0.75rem">Flash attn <i class="bi bi-question-circle help-icon" title="Flash Attention 2: rewrites the attention kernel to use much less memory and run faster, especially at long contexts. Safe to leave on for nearly all models. Disable if you see NaN/garbage output."></i></label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="$store.nf.editModal.error" class="text-danger small" x-text="$store.nf.editModal.error"></div>
+    <p class="text-secondary mb-0" style="font-size:0.72rem">Changes apply on next model load.</p>
+
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="btn btn-sm btn-outline-secondary" @click="$store.nf.editModal.open = false">Cancel</button>
+      <button class="btn btn-sm btn-success" @click="$store.nf.saveEdit()"
+        :disabled="$store.nf.editModal.saving || !$store.nf.editModal.name.trim()">
+        <span x-show="!$store.nf.editModal.saving">Save</span>
+        <span x-show="$store.nf.editModal.saving">Saving…</span>
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- HF Add Modal -->
 <div class="hf-backdrop" x-show="$store.nf.hfModal.open" x-cloak
