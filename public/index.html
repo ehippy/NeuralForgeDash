@@ -484,6 +484,43 @@ function renderModelButtons() {
       hfLink.addEventListener('click', e => e.stopPropagation());
       rightCluster.appendChild(hfLink);
     }
+
+    // ── HF sync / link button
+    const needsSync = !info.hfRepoId || !info.arch || !info.caps;
+    if (needsSync) {
+      const syncBtn = document.createElement('button');
+      syncBtn.title   = info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to a HuggingFace repo to backfill metadata';
+      syncBtn.style.cssText = 'background:none;border:none;padding:0;cursor:pointer;font-size:11px;color:#555577;line-height:1';
+      syncBtn.textContent = info.hfRepoId ? '↻' : '🔗 HF';
+      syncBtn.addEventListener('click', async e => {
+        e.stopPropagation();
+        let repoId = info.hfRepoId;
+        if (!repoId) {
+          repoId = prompt(`HuggingFace repo ID for "${alias}"\n(e.g. unsloth/Qwen3-30B-A3B-GGUF)`);
+          if (!repoId) return;
+          repoId = repoId.trim();
+        }
+        syncBtn.disabled = true;
+        const orig = syncBtn.textContent;
+        syncBtn.textContent = '…';
+        try {
+          const r = await fetch('/api/hf/backfill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias, repoId }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'backfill failed');
+          fetchModels();
+        } catch (err) {
+          alert(`HF backfill failed: ${err.message}`);
+          syncBtn.disabled = false;
+          syncBtn.textContent = orig;
+        }
+      });
+      rightCluster.appendChild(syncBtn);
+    }
+
     topRow.appendChild(leftCluster);
     topRow.appendChild(rightCluster);
 

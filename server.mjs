@@ -524,7 +524,22 @@ const server = createServer(async (req, res) => {
         .map(async ([alias, info]) => {
           const p = info.model.replace('~', process.env.HOME);
           let fileSize = null;
-          try { fileSize = (await stat(p)).size; } catch {}
+          try {
+            const shardMatch = p.match(/^(.+)-(\d{5})-of-(\d{5})\.gguf$/i);
+            if (shardMatch) {
+              const [, prefix,, total] = shardMatch;
+              const count = parseInt(total, 10);
+              const sizes = await Promise.all(
+                Array.from({ length: count }, (_, i) =>
+                  stat(`${prefix}-${String(i + 1).padStart(5, '0')}-of-${total}.gguf`)
+                    .then(s => s.size).catch(() => 0)
+                )
+              );
+              fileSize = sizes.reduce((a, b) => a + b, 0) || null;
+            } else {
+              fileSize = (await stat(p)).size;
+            }
+          } catch {}
           return [alias, { ...info, fileSize }];
         })
     );
@@ -599,6 +614,42 @@ const server = createServer(async (req, res) => {
         const key = await startDownload(repoId, filename, meta || {});
         json(res, { ok: true, key });
       } catch (e) { error(res, 400, e.message); }
+    });
+    return;
+  }
+
+  if (path === '/api/hf/backfill' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { alias, repoId } = JSON.parse(body || '{}');
+        if (!alias || !repoId) { error(res, 400, 'alias and repoId required'); return; }
+        if (!/^[a-zA-Z0-9]([a-zA-Z0-9._-]*)\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(repoId))
+          { error(res, 400, 'Invalid repoId'); return; }
+
+        const cfgPath = join(__dirname, 'models.json');
+        const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+        if (!cfg.aliases[alias]) { error(res, 404, 'alias not found'); return; }
+
+        const hfRes = await fetch(`${HF_API}/models/${repoId}`, { headers: hfHeaders(), signal: AbortSignal.timeout(10000) });
+        if (!hfRes.ok) throw new Error(`HF fetch failed: ${hfRes.status}`);
+        const data = await hfRes.json();
+
+        const entry = cfg.aliases[alias];
+        entry.hfRepoId = repoId;
+        const arch = hfExtractArch(data.tags || []);
+        const caps = hfExtractCaps(data.tags || [], repoId);
+        if (arch)           entry.arch          = arch;
+        if (caps.length)    entry.caps          = caps;
+        if (data.pipeline_tag)       entry.pipeline       = data.pipeline_tag;
+        if (data.likes       != null) entry.hfLikes       = data.likes;
+        if (data.downloads   != null) entry.hfDownloads   = data.downloads;
+        if (data.lastModified)        entry.hfLastModified = data.lastModified;
+
+        writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
+        json(res, { ok: true, alias, entry });
+      } catch (e) { error(res, 500, e.message); }
     });
     return;
   }
