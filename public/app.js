@@ -161,6 +161,7 @@ document.addEventListener('alpine:init', () => {
     models: { aliases: {}, discovered: [] },
     _uptimeTimers: new Map(),
     hfModal: { open: false, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false },
+    hfDownloads: {},   // key -> { key, repoId, filename, bytes, total, done, error }
 
     get runningList() {
       return Object.values(this.instances).filter(s => s.running);
@@ -401,72 +402,42 @@ async function init() {
 document.addEventListener('alpine:initialized', () => { init(); });
 
 // ── HuggingFace downloads ─────────────────────────────────────────────────────
-const hfProgressEls = new Map();
+const hfProgressEls = new Map(); // key presence used for loadHFDownloads dedup
 
 function addHFDownloadRow(key, repoId, filename) {
-  const panel = document.getElementById('hfActiveDownloads');
-
-  const wrap = document.createElement('div');
-  wrap.id = 'hfdl-' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
-
-  const topRow = document.createElement('div');
-  topRow.className = 'd-flex justify-content-between small mb-1';
-  const nameEl = document.createElement('span');
-  nameEl.className = 'text-secondary text-truncate';
-  nameEl.textContent = filename;
-  const labelEl = document.createElement('span');
-  labelEl.className = 'text-success flex-shrink-0';
-  labelEl.textContent = '0%';
-  topRow.appendChild(nameEl);
-  topRow.appendChild(labelEl);
-
-  const progWrap = document.createElement('div');
-  progWrap.className = 'progress';
-  progWrap.style.height = '4px';
-  const barEl = document.createElement('div');
-  barEl.className = 'progress-bar bg-success';
-  barEl.style.width = '0%';
-  barEl.style.transition = 'width 0.4s ease';
-  progWrap.appendChild(barEl);
-
-  wrap.appendChild(topRow);
-  wrap.appendChild(progWrap);
-  panel.appendChild(wrap);
-
-  hfProgressEls.set(key, { barEl, labelEl, wrap });
+  hfProgressEls.set(key, true);
+  const store = Alpine.store('nf');
+  store.hfDownloads = { ...store.hfDownloads, [key]: { key, repoId, filename, bytes: 0, total: 0, done: false, error: null } };
 }
 
 function updateHFProgress(key, bytes, total) {
-  const el = hfProgressEls.get(key);
-  if (!el) return;
-  if (total > 0) {
-    const pct = Math.round((bytes / total) * 100);
-    el.barEl.style.width = pct + '%';
-    el.labelEl.textContent = `${pct}% \u00b7 ${fmtBytes(bytes)} / ${fmtBytes(total)}`;
-  } else {
-    el.labelEl.textContent = fmtBytes(bytes);
-  }
+  const store = Alpine.store('nf');
+  if (!store.hfDownloads[key]) return;
+  store.hfDownloads = { ...store.hfDownloads, [key]: { ...store.hfDownloads[key], bytes, total } };
 }
 
 function onHFDone(key, alias) {
-  const el = hfProgressEls.get(key);
-  if (el) {
-    el.barEl.style.width = '100%';
-    el.barEl.className = 'progress-bar bg-success';
-    el.labelEl.textContent = `\u2713 done \u00b7 alias: ${alias}`;
-    setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 8000);
-  }
+  const store = Alpine.store('nf');
+  if (!store.hfDownloads[key]) return;
+  store.hfDownloads = { ...store.hfDownloads, [key]: { ...store.hfDownloads[key], done: true } };
+  setTimeout(() => {
+    const dl = { ...Alpine.store('nf').hfDownloads };
+    delete dl[key];
+    Alpine.store('nf').hfDownloads = dl;
+    hfProgressEls.delete(key);
+  }, 5000);
 }
 
 function onHFError(key, errMsg) {
-  const el = hfProgressEls.get(key);
-  if (el) {
-    el.barEl.className = 'progress-bar bg-danger';
-    el.barEl.style.width = '100%';
-    el.labelEl.textContent = '\u2717 ' + errMsg;
-    el.labelEl.className = 'text-danger flex-shrink-0';
-    setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 10000);
-  }
+  const store = Alpine.store('nf');
+  if (!store.hfDownloads[key]) return;
+  store.hfDownloads = { ...store.hfDownloads, [key]: { ...store.hfDownloads[key], error: errMsg } };
+  setTimeout(() => {
+    const dl = { ...Alpine.store('nf').hfDownloads };
+    delete dl[key];
+    Alpine.store('nf').hfDownloads = dl;
+    hfProgressEls.delete(key);
+  }, 10000);
 }
 
 async function loadHFDownloads() {

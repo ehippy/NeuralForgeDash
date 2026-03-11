@@ -61,6 +61,37 @@
   <div>
     <p class="text-secondary text-uppercase mb-3" style="font-size:0.7rem;letter-spacing:0.1em;font-weight:600">Models</p>
     <div id="aliasGrid">
+      <!-- active download cards -->
+      <template x-for="dl in Object.values($store.nf.hfDownloads)" :key="dl.key">
+        <div class="model-card border rounded text-start w-100"
+          style="padding: 1rem 1.1rem"
+          :class="dl.error ? 'border-danger' : 'border-primary'">
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <i class="bi text-primary" :class="dl.done ? 'bi-check-circle-fill text-success' : dl.error ? 'bi-x-circle-fill text-danger' : 'bi-download'"></i>
+            <span class="fw-semibold text-truncate" style="font-size:0.9rem" x-text="dl.filename.split('/').pop()"></span>
+          </div>
+          <div class="text-secondary mb-3" style="font-size:0.78rem" x-text="dl.repoId"></div>
+          <template x-if="!dl.error">
+            <div>
+              <div class="d-flex justify-content-between mb-1" style="font-size:0.75rem">
+                <span class="text-secondary" x-text="dl.done ? '✓ Complete' : 'Downloading…'"></span>
+                <span :class="dl.done ? 'text-success' : 'text-primary'" x-text="dl.total > 0 ? Math.round(dl.bytes/dl.total*100)+'%' : (dl.bytes > 0 ? fmtBytes(dl.bytes) : '…')"></span>
+              </div>
+              <div class="progress" style="height:4px">
+                <div class="progress-bar" :class="dl.done ? 'bg-success' : 'bg-primary'"
+                  :style="`width:${dl.total > 0 ? Math.round(dl.bytes/dl.total*100) : (dl.done ? 100 : 0)}%`"
+                  style="transition:width 0.4s ease"></div>
+              </div>
+              <div x-show="dl.total > 0 && !dl.done" class="text-secondary mt-1" style="font-size:0.72rem"
+                x-text="fmtBytes(dl.bytes) + ' / ' + fmtBytes(dl.total)"></div>
+            </div>
+          </template>
+          <template x-if="dl.error">
+            <div class="text-danger" style="font-size:0.78rem" x-text="'✗ ' + dl.error"></div>
+          </template>
+        </div>
+      </template>
+
       <template x-for="[alias, info] in Object.entries($store.nf.models.aliases)" :key="alias">
         <div
           class="model-btn model-card border rounded text-start w-100"
@@ -182,8 +213,8 @@
     </div>
   </div>
 
-  <!-- HuggingFace active downloads -->
-  <div id="hfActiveDownloads" class="d-flex flex-column gap-2"></div>
+  <!-- HuggingFace active downloads (kept for loadHFDownloads compat) -->
+  <div id="hfActiveDownloads" style="display:none"></div>
 
   <!-- Server log -->
   <div class="card bg-dark border-secondary" style="height:200px;display:flex;flex-direction:column">
