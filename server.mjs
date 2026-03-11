@@ -3,7 +3,7 @@ import { readFileSync, existsSync, createWriteStream, writeFileSync } from 'fs';
 import { spawn, exec } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFile, readdir, stat, mkdir, rename, unlink } from 'fs/promises';
+import { readFile, readdir, stat, mkdir, rename, unlink, statfs } from 'fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -272,6 +272,15 @@ async function getGpuStats() {
 
   const cpuPct = await getCpuPct();
 
+  let diskUsedGB = null, diskTotalGB = null;
+  try {
+    const s = await statfs('/home');
+    const total = s.blocks * s.bsize;
+    const avail = s.bavail * s.bsize;
+    diskTotalGB = (total / 1e9).toFixed(1);
+    diskUsedGB  = ((total - avail) / 1e9).toFixed(1);
+  } catch {}
+
   return {
     busyPct: busy !== null ? parseInt(busy) : null,
     gttUsedGB: gttUsed !== null ? (parseInt(gttUsed) / 1e9).toFixed(1) : null,
@@ -281,6 +290,8 @@ async function getGpuStats() {
     clockMhz,
     cpuTempC: cpuTemp,
     cpuPct,
+    diskUsedGB,
+    diskTotalGB,
   };
 }
 

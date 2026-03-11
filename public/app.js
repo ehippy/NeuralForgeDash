@@ -101,12 +101,13 @@ function updateGpu(g) {
     ? (parseFloat(g.gttUsedGB) / parseFloat(g.gttTotalGB)) * 100
     : 0;
   setBar('gpuBusyBar', 'gpuBusyVal', g.busyPct, '%', true);
+  document.getElementById('gpuStat').title = g.clockMhz ? `${g.clockMhz} MHz` : '';
   setBar('cpuBusyBar', 'cpuBusyVal', g.cpuPct, '%', true);
+  document.getElementById('cpuStat').title = g.cpuTempC != null ? `${g.cpuTempC.toFixed(0)}°C` : '';
   setBar('gttBar', 'gttVal', g.gttUsedGB, ' GB', false, gttPct);
-  setBar('vramBar', 'vramVal', g.vramUsedMB, ' MB',
-    false, g.vramUsedMB && g.vramTotalMB ? (g.vramUsedMB / g.vramTotalMB) * 100 : 0);
-  document.getElementById('gpuClock').textContent = g.clockMhz ? `${g.clockMhz} MHz` : '—';
-  document.getElementById('cpuTemp').textContent = g.cpuTempC != null ? `${g.cpuTempC.toFixed(0)}°C` : '—';
+  const diskPct = g.diskUsedGB && g.diskTotalGB
+    ? (parseFloat(g.diskUsedGB) / parseFloat(g.diskTotalGB)) * 100 : 0;
+  setBar('diskBar', 'diskVal', g.diskUsedGB, ' GB', false, diskPct);
   drawFavicon(g.busyPct, gttPct);
 }
 
@@ -360,7 +361,6 @@ const hfProgressEls = new Map();
 
 function addHFDownloadRow(key, repoId, filename) {
   const panel = document.getElementById('hfActiveDownloads');
-  if (panel.children.length === 0) panel.style.marginTop = '10px';
 
   const wrap = document.createElement('div');
   wrap.id = 'hfdl-' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
