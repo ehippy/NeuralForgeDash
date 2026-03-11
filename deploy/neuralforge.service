@@ -1,0 +1,21 @@
+[Unit]
+Description=NeuralForge LLM Manager
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+ExecStart=/usr/bin/node __PROJECT_DIR__/server.mjs
+WorkingDirectory=__PROJECT_DIR__
+Restart=always
+RestartSec=5
+Environment=PORT=5757
+Environment=MODELS_DIR=__HOME__/models
+Environment=LLAMA_BIN=__HOME__/.local/bin/llama-server
+Environment=LD_LIBRARY_PATH=__HOME__/.local/bin
+# Uncomment to autoload a specific model alias on startup:
+# Environment=AUTOSTART_ALIAS=coder
+
+[Install]
+WantedBy=multi-user.target
