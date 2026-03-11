@@ -202,6 +202,25 @@ async function readSysfs(path) {
   catch { return null; }
 }
 
+let _prevCpuStat = null;
+async function getCpuPct() {
+  try {
+    const raw = await readFile('/proc/stat', 'utf8');
+    const line = raw.split('\n')[0]; // 'cpu  user nice system idle iowait irq softirq ...'
+    const parts = line.trim().split(/\s+/).slice(1).map(Number);
+    const idle = parts[3] + (parts[4] || 0); // idle + iowait
+    const total = parts.reduce((a, b) => a + b, 0);
+    if (_prevCpuStat) {
+      const dTotal = total - _prevCpuStat.total;
+      const dIdle  = idle  - _prevCpuStat.idle;
+      _prevCpuStat = { total, idle };
+      return dTotal > 0 ? Math.round(100 * (1 - dIdle / dTotal)) : 0;
+    }
+    _prevCpuStat = { total, idle };
+    return null;
+  } catch { return null; }
+}
+
 async function getGpuStats() {
   const base = '/sys/class/drm/card1/device';
   const [busy, gttUsed, gttTotal, vramUsed, vramTotal, sclk] = await Promise.all([
@@ -237,6 +256,8 @@ async function getGpuStats() {
     if (m) clockMhz = parseInt(m[1]);
   }
 
+  const cpuPct = await getCpuPct();
+
   return {
     busyPct: busy !== null ? parseInt(busy) : null,
     gttUsedGB: gttUsed !== null ? (parseInt(gttUsed) / 1e9).toFixed(1) : null,
@@ -245,6 +266,7 @@ async function getGpuStats() {
     vramTotalMB: vramTotal !== null ? Math.round(parseInt(vramTotal) / 1e6) : null,
     clockMhz,
     cpuTempC: cpuTemp,
+    cpuPct,
   };
 }
 

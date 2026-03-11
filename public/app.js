@@ -97,16 +97,16 @@ function setBar(barId, valId, displayVal, suffix, usePctForColor, pctOverride) {
 
 function updateGpu(g) {
   if (!g) return;
+  const gttPct = g.gttUsedGB && g.gttTotalGB
+    ? (parseFloat(g.gttUsedGB) / parseFloat(g.gttTotalGB)) * 100
+    : 0;
   setBar('gpuBusyBar', 'gpuBusyVal', g.busyPct, '%', true);
-  setBar('gttBar', 'gttVal', g.gttUsedGB, ` / ${g.gttTotalGB} GB`,
-    false, g.gttUsedGB && g.gttTotalGB ? (g.gttUsedGB / g.gttTotalGB) * 100 : 0);
-  setBar('vramBar', 'vramVal', g.vramUsedMB, ` / ${g.vramTotalMB} MB`,
+  setBar('cpuBusyBar', 'cpuBusyVal', g.cpuPct, '%', true);
+  setBar('gttBar', 'gttVal', g.gttUsedGB, ' GB', false, gttPct);
+  setBar('vramBar', 'vramVal', g.vramUsedMB, ' MB',
     false, g.vramUsedMB && g.vramTotalMB ? (g.vramUsedMB / g.vramTotalMB) * 100 : 0);
   document.getElementById('gpuClock').textContent = g.clockMhz ? `${g.clockMhz} MHz` : '—';
   document.getElementById('cpuTemp').textContent = g.cpuTempC != null ? `${g.cpuTempC.toFixed(0)}°C` : '—';
-  const gttPct = g.gttUsedGB && g.gttTotalGB
-    ? (parseFloat(g.gttUsedGB) / parseFloat(g.gttTotalGB)) * 100
-    : null;
   drawFavicon(g.busyPct, gttPct);
 }
 
@@ -147,20 +147,8 @@ document.addEventListener('alpine:init', () => {
     hfOpen: false,
     _uptimeTimers: new Map(),
 
-    get anySwitching() {
-      return Object.values(this.instances).some(s => s.switching);
-    },
     get runningList() {
       return Object.values(this.instances).filter(s => s.running);
-    },
-    get runningAndSwitching() {
-      return Object.values(this.instances).filter(s => s.running || s.switching);
-    },
-    get statusText() {
-      if (this.anySwitching) return 'LOADING\u2026';
-      const r = this.runningList;
-      if (r.length === 0) return 'STOPPED';
-      return r.length === 1 ? (r[0].model || 'RUNNING') : `${r.length} RUNNING`;
     },
     get discoveredExtra() {
       return (this.models.discovered || []).filter(d =>
