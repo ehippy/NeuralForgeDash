@@ -331,6 +331,18 @@
             <label class="form-check-label text-secondary" for="editFlashAttn" style="font-size:0.75rem">Flash attn <i class="bi bi-question-circle help-icon" title="Flash Attention 2: rewrites the attention kernel to use much less memory and run faster, especially at long contexts. Safe to leave on for nearly all models. Disable if you see NaN/garbage output."></i></label>
           </div>
         </div>
+        <!-- thinking toggle row -->
+        <div class="d-flex align-items-center gap-3 pt-1">
+          <span class="text-secondary" style="font-size:0.75rem">Thinking mode <i class="bi bi-question-circle help-icon" title="Qwen3 models can emit a hidden chain-of-thought before answering (enable_thinking). On = always think (slower, smarter). Off = skip thinking (faster, good for code/autocomplete). Default = let the client decide per-request."></i></span>
+          <div class="d-flex gap-2">
+            <template x-for="[val, label] in [['default','Default'],[true,'On'],[false,'Off']]" :key="label">
+              <button class="btn btn-sm" style="font-size:0.72rem;padding:2px 10px"
+                :class="($store.nf.editModal.enableThinking === (val === 'default' ? null : val)) ? 'btn-primary' : 'btn-outline-secondary'"
+                @click="$store.nf.editModal.enableThinking = val === 'default' ? null : val"
+                x-text="label"></button>
+            </template>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -299,6 +299,8 @@ document.addEventListener('alpine:init', () => {
         flashAttn: info.flashAttn ?? true,
         cacheTypeK: info.cacheTypeK ?? 'q8_0',
         cacheTypeV: info.cacheTypeV ?? 'q8_0',
+        // null = model default (no flag passed), true/false = explicit override
+        enableThinking: info.enableThinking ?? null,
         saving: false, error: null,
       };
       setTimeout(() => document.getElementById('editModalName')?.focus(), 50);
@@ -313,7 +315,9 @@ document.addEventListener('alpine:init', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ alias, name: name.trim(), ctx: +ctx, parallel: +parallel,
-            gpuLayers: +gpuLayers, batchSize: +batchSize, ubatchSize: +ubatchSize, flashAttn, cacheTypeK, cacheTypeV }),
+            gpuLayers: +gpuLayers, batchSize: +batchSize, ubatchSize: +ubatchSize,
+            flashAttn, cacheTypeK, cacheTypeV,
+            enableThinking: this.editModal.enableThinking }),
         });
         const d = await r.json();
         if (!r.ok) { this.editModal.error = d.error || 'Save failed'; return; }

@@ -105,6 +105,8 @@ class LlamaManager {
     const flashAttn  = aliasConfig.flashAttn  ?? d.flashAttn;
     const cacheTypeK = aliasConfig.cacheTypeK  ?? d.cacheTypeK;
     const cacheTypeV = aliasConfig.cacheTypeV  ?? d.cacheTypeV;
+    // undefined = don't pass the flag (let model default); true/false = explicit
+    const enableThinking = aliasConfig.enableThinking;
 
     const args = [
       '--model', modelPath,
@@ -123,6 +125,7 @@ class LlamaManager {
     if (flashAttn !== undefined) args.push('--flash-attn', flashAttn ? 'on' : 'off');
     if (cacheTypeK) args.push('--cache-type-k', cacheTypeK);
     if (cacheTypeV) args.push('--cache-type-v', cacheTypeV);
+    if (enableThinking !== undefined) args.push('--chat-template-kwargs', JSON.stringify({ enable_thinking: enableThinking }));
 
     const env = { ...process.env, LD_LIBRARY_PATH: `${process.env.HOME}/.local/bin:${process.env.LD_LIBRARY_PATH || ''}` };
 
@@ -806,7 +809,7 @@ const server = createServer(async (req, res) => {
     req.on('data', d => body += d);
     req.on('end', () => {
       try {
-        const { alias, name, ctx, parallel, gpuLayers, batchSize, ubatchSize, flashAttn, cacheTypeK, cacheTypeV } = JSON.parse(body || '{}');
+        const { alias, name, ctx, parallel, gpuLayers, batchSize, ubatchSize, flashAttn, cacheTypeK, cacheTypeV, enableThinking } = JSON.parse(body || '{}');
         if (!alias) { error(res, 400, 'alias required'); return; }
         const cfgPath = join(__dirname, 'models.json');
         const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
@@ -822,6 +825,9 @@ const server = createServer(async (req, res) => {
         if (flashAttn  !== undefined) entry.flashAttn  = Boolean(flashAttn);
         if (cacheTypeK !== undefined && CACHE_TYPES.includes(cacheTypeK)) entry.cacheTypeK = cacheTypeK;
         if (cacheTypeV !== undefined && CACHE_TYPES.includes(cacheTypeV)) entry.cacheTypeV = cacheTypeV;
+        // null = remove override (revert to model default), true/false = explicit
+        if (enableThinking === null) delete entry.enableThinking;
+        else if (enableThinking !== undefined) entry.enableThinking = Boolean(enableThinking);
         writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
         json(res, { ok: true, alias, entry });
       } catch (e) { error(res, 500, e.message); }
