@@ -49,16 +49,31 @@ function readConfig() {
 
 // ── Circular log buffer ────────────────────────────────────────────────────────
 class LogBuffer {
-  constructor(size = 100) {
+  constructor(size = 500) {
     this.size = size;
     this.lines = [];
   }
-  push(line) {
+  push(text, prefix) {
+    const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+    const line = prefix ? `${ts} ${prefix} ${text}` : `${ts} ${text}`;
     this.lines.push(line);
     if (this.lines.length > this.size) this.lines.shift();
+    // Broadcast to any connected SSE clients immediately
+    if (typeof broadcastSSE === 'function') {
+      broadcastSSE({ type: 'log', line });
+    }
+    return line;
   }
-  get() { return this.lines; }
+  get() { return [...this.lines]; }
 }
+
+const appLog = new LogBuffer(500);
+
+// Intercept console.log/error so NeuralForge's own output appears in the dashboard
+const _origLog   = console.log.bind(console);
+const _origError = console.error.bind(console);
+console.log   = (...a) => { const t = a.map(String).join(' '); _origLog(t);   appLog.push(t); };
+console.error = (...a) => { const t = a.map(String).join(' '); _origError(t); appLog.push(t); };
 
 // ── LlamaManager ──────────────────────────────────────────────────────────────
 class LlamaManager {
@@ -68,7 +83,6 @@ class LlamaManager {
     this.modelName = null;
     this.startTime = null;
     this.port = null;
-    this.logs = new LogBuffer(100);
     this.switching = false;
   }
 
@@ -103,21 +117,21 @@ class LlamaManager {
 
     const env = { ...process.env, LD_LIBRARY_PATH: `${process.env.HOME}/.local/bin:${process.env.LD_LIBRARY_PATH || ''}` };
 
-    this.logs.push(`[neuralforge] Starting ${aliasConfig.name}...`);
+    appLog.push(`Starting ${aliasConfig.name}...`, '[neuralforge]');
     const proc = spawn(LLAMA_BIN, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 
     proc.stdout.on('data', d => {
       for (const line of d.toString().split('\n')) {
-        if (line.trim()) this.logs.push(line);
+        if (line.trim()) appLog.push(line, `[${alias}]`);
       }
     });
     proc.stderr.on('data', d => {
       for (const line of d.toString().split('\n')) {
-        if (line.trim()) this.logs.push(line);
+        if (line.trim()) appLog.push(line, `[${alias}]`);
       }
     });
     proc.on('exit', (code) => {
-      this.logs.push(`[neuralforge] llama-server exited (code ${code})`);
+      appLog.push(`llama-server exited (code ${code})`, `[${alias}]`);
       if (this.proc === proc) {
         this.proc = null;
         this.alias = null;
@@ -602,10 +616,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/api/logs' && req.method === 'GET') {
-    // Merge logs from all running managers, sorted by arrival order (each manager
-    // maintains its own LogBuffer; we concatenate and take the last 200).
-    const all = [...managers.values()].flatMap(m => m.logs.get());
-    json(res, { lines: all.slice(-200) });
+    json(res, { lines: appLog.get() });
     return;
   }
 

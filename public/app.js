@@ -111,23 +111,38 @@ function updateGpu(g) {
 }
 
 // ── Log rendering ─────────────────────────────────────────────────────────────
+function logLineEl(line) {
+  let cls = 'log-line';
+  if (/error|fail|fatal/i.test(line)) cls += ' err';
+  else if (/warn/i.test(line)) cls += ' warn';
+  else if (/\[neuralforge\]|listen|ready|done/i.test(line)) cls += ' info';
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = line;
+  return div;
+}
+
 function renderLogs(lines) {
   const inner = document.getElementById('logInner');
   inner.innerHTML = '';
   const frag = document.createDocumentFragment();
-  for (const line of lines) {
-    let cls = 'log-line';
-    if (/error|fail|fatal/i.test(line)) cls += ' err';
-    else if (/warn/i.test(line)) cls += ' warn';
-    else if (/neuralforge|listen|ready|done/i.test(line)) cls += ' info';
-    const div = document.createElement('div');
-    div.className = cls;
-    div.textContent = line;
-    frag.appendChild(div);
-  }
+  for (const line of lines) frag.appendChild(logLineEl(line));
   inner.appendChild(frag);
   const body = document.getElementById('logBody');
   body.scrollTop = body.scrollHeight;
+}
+
+function appendLog(line) {
+  const inner = document.getElementById('logInner');
+  if (!inner) return;
+  inner.appendChild(logLineEl(line));
+  // Keep DOM trim to last 500 lines
+  while (inner.children.length > 500) inner.removeChild(inner.firstChild);
+  const body = document.getElementById('logBody');
+  // Only auto-scroll if already near bottom
+  if (body.scrollHeight - body.scrollTop - body.clientHeight < 60) {
+    body.scrollTop = body.scrollHeight;
+  }
 }
 
 async function loadLogs() {
@@ -293,6 +308,8 @@ function connectSSE() {
       store._stopTimer(data.alias);
       store.instances = inst;
       loadLogs();
+    } else if (data.type === 'log') {
+      appendLog(data.line);
     } else if (data.type === 'hf-progress') {
       updateHFProgress(data.key, data.bytes, data.total);
     } else if (data.type === 'hf-done') {
@@ -327,7 +344,6 @@ async function init() {
   await refresh();
   await loadLogs();
   connectSSE();
-  setInterval(loadLogs, 2000);
 }
 
 document.addEventListener('alpine:initialized', () => { init(); });
