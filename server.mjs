@@ -293,6 +293,22 @@ function hfHeaders() {
 // Known architecture keywords to surface as a badge
 const HF_ARCH_TAGS = ['llama','mistral','qwen','phi','gemma','falcon','gpt','mixtral','deepseek','mamba','command','yi','solar','internlm','baichuan','bloom','codellama','starcoder','wizardcoder','openchat','vicuna','orca','hermes','dolphin','nous'];
 
+// Capability detection: tag patterns → label shown in UI
+const HF_CAPS = [
+  { label: '🔧 tools',   patterns: ['function-calling','tool-use','tools','function_calling'] },
+  { label: '👁 vision',  patterns: ['vision','multimodal','image-text-to-text','image-to-text','visual'] },
+  { label: '💻 code',    patterns: ['code','coding','code-generation','starcoder','codellama'] },
+  { label: '🧮 math',    patterns: ['math','mathematics','reasoning'] },
+  { label: '🔒 gated',   patterns: ['gated'] },
+];
+
+function hfExtractCaps(tags = [], modelId = '') {
+  const haystack = [...tags.map(t => t.toLowerCase()), modelId.toLowerCase()];
+  return HF_CAPS
+    .filter(cap => cap.patterns.some(p => haystack.some(h => h.includes(p))))
+    .map(cap => cap.label);
+}
+
 function hfExtractArch(tags = []) {
   for (const t of tags) {
     const tl = t.toLowerCase();
@@ -307,18 +323,30 @@ function hfParseQuant(filename) {
 }
 
 async function hfSearch(query, limit = 20) {
-  const url = `${HF_API}/models?search=${encodeURIComponent(query)}&filter=gguf&limit=${limit}&sort=downloads&direction=-1`;
-  const res = await fetch(url, { headers: hfHeaders(), signal: AbortSignal.timeout(10000) });
+  const url = `${HF_API}/models?search=${encodeURIComponent(query)}&filter=gguf&limit=${limit}&sort=downloads&direction=-1&full=true`;
+  const res = await fetch(url, { headers: hfHeaders(), signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`HF search failed: ${res.status}`);
   const list = await res.json();
-  return list.map(m => ({
-    id: m.id,
-    downloads: m.downloads || 0,
-    likes: m.likes || 0,
-    lastModified: m.lastModified || null,
-    pipeline: m.pipeline_tag || null,
-    arch: hfExtractArch(m.tags || []),
-  }));
+  return list.map(m => {
+    // Sum sizes of all GGUF siblings for a "total size" indicator
+    const ggufSiblings = (m.siblings || []).filter(s => s.rfilename.endsWith('.gguf'));
+    const totalGgufBytes = ggufSiblings.reduce((acc, s) => acc + (s.size || 0), 0);
+    // Count distinct quant variants (ignore shard duplicates)
+    const quantSet = new Set(ggufSiblings
+      .filter(s => { const mm = s.rfilename.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/); return !mm || mm[1] === '00001'; })
+      .map(s => hfParseQuant(s.rfilename)).filter(Boolean));
+    return {
+      id: m.id,
+      downloads: m.downloads || 0,
+      likes: m.likes || 0,
+      lastModified: m.lastModified || null,
+      pipeline: m.pipeline_tag || null,
+      arch: hfExtractArch(m.tags || []),
+      caps: hfExtractCaps(m.tags || [], m.id),
+      totalGgufBytes: totalGgufBytes || null,
+      quantVariants: [...quantSet],
+    };
+  });
 }
 
 async function hfRepoFiles(repoId) {
@@ -349,7 +377,7 @@ function validateHFInput(repoId, filename) {
   return base;
 }
 
-async function startDownload(repoId, filename) {
+async function startDownload(repoId, filename, meta = {}) {
   const cleanName = validateHFInput(repoId, filename);
   const key = `${repoId}/${cleanName}`;
 
@@ -389,7 +417,7 @@ async function startDownload(repoId, filename) {
       await rename(tmp, dest);
       entry.done = true;
 
-      const alias = addModelAlias(repoId, cleanName, dest);
+      const alias = addModelAlias(repoId, cleanName, dest, meta);
       broadcastSSE({ type: 'hf-done', key, alias });
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -403,7 +431,7 @@ async function startDownload(repoId, filename) {
   return key;
 }
 
-function addModelAlias(repoId, filename, dest) {
+function addModelAlias(repoId, filename, dest, meta = {}) {
   const cfgPath = join(__dirname, 'models.json');
   const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
 
@@ -414,14 +442,26 @@ function addModelAlias(repoId, filename, dest) {
   let i = 2;
   while (cfg.aliases[alias]) alias = `${slug}-${i++}`;
 
-  // Guess a friendly quant label from filename, e.g. "Q4_K_M"
-  const quantTag = filename.match(/([qQ][0-9][^.]*)/)?.[1] || '';
-  cfg.aliases[alias] = {
+  const quantTag = hfParseQuant(filename) || filename.match(/([qQ][0-9][^.]*)/)?.[1] || '';
+  const entry = {
     name: `${repoId.split('/').pop()}${quantTag ? ' ' + quantTag : ''}`,
     model: dest,
     ctx: 32768,
     parallel: 2,
   };
+
+  // Persist HF metadata so the dashboard and users can see it later
+  if (meta.hfRepoId)       entry.hfRepoId       = meta.hfRepoId;
+  if (meta.hfFilename)     entry.hfFilename     = meta.hfFilename;
+  if (meta.arch)           entry.arch           = meta.arch;
+  if (meta.pipeline)       entry.pipeline       = meta.pipeline;
+  if (meta.caps?.length)   entry.caps           = meta.caps;
+  if (meta.likes != null)  entry.hfLikes        = meta.likes;
+  if (meta.downloads != null) entry.hfDownloads = meta.downloads;
+  if (meta.fileSize)       entry.fileSize       = meta.fileSize;
+  if (meta.lastModified)   entry.hfLastModified = meta.lastModified;
+
+  cfg.aliases[alias] = entry;
   writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n');
   return alias;
 }
@@ -554,9 +594,9 @@ const server = createServer(async (req, res) => {
     req.on('data', d => body += d);
     req.on('end', async () => {
       try {
-        const { repoId, filename } = JSON.parse(body || '{}');
+        const { repoId, filename, meta } = JSON.parse(body || '{}');
         if (!repoId || !filename) { error(res, 400, 'repoId and filename required'); return; }
-        const key = await startDownload(repoId, filename);
+        const key = await startDownload(repoId, filename, meta || {});
         json(res, { ok: true, key });
       } catch (e) { error(res, 400, e.message); }
     });

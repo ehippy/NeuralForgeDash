@@ -444,20 +444,82 @@ function renderModelButtons() {
     card.className = 'model-btn model-card';
     card.dataset.alias = alias;
     card.onclick = () => confirmSwitch(alias, info.name);
-    const sizeLabel = info.fileSize ? fmtBytes(info.fileSize) : '';
-    const ctxLabel = fmtCtx(info.ctx || 32768);
-    const parallel = info.parallel || 2;
-    card.innerHTML =
-      `<div class="d-flex justify-content-between align-items-center mb-1">` +
-        `<div class="d-flex align-items-center gap-1">` +
-          `<span class="dot" style="width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:none;flex-shrink:0"></span>` +
-          `<span class="font-12 fw-semibold">${alias}</span>` +
-          `<span class="start-hint font-10 text-teal" style="display:none">▶</span>` +
-        `</div>` +
-        (sizeLabel ? `<span class="font-10 text-secondary">${sizeLabel}</span>` : '') +
-      `</div>` +
-      `<div class="font-10 text-secondary mb-1" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${info.name}">${info.name}</div>` +
-      `<div class="font-10" style="color:#555577">ctx&nbsp;${ctxLabel}&nbsp;·&nbsp;${parallel}&nbsp;slots</div>`;
+
+    // ── top row: dot indicator + alias + start hint + size
+    const topRow = document.createElement('div');
+    topRow.className = 'd-flex justify-content-between align-items-center mb-1';
+
+    const leftCluster = document.createElement('div');
+    leftCluster.className = 'd-flex align-items-center gap-1';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.cssText = 'width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:none;flex-shrink:0';
+    const aliasEl = document.createElement('span');
+    aliasEl.className = 'font-12 fw-semibold';
+    aliasEl.textContent = alias;
+    const hint = document.createElement('span');
+    hint.className = 'start-hint font-10 text-teal';
+    hint.style.display = 'none';
+    hint.textContent = '▶';
+    leftCluster.appendChild(dot);
+    leftCluster.appendChild(aliasEl);
+    leftCluster.appendChild(hint);
+
+    const rightCluster = document.createElement('div');
+    rightCluster.className = 'd-flex align-items-center gap-2';
+    if (info.fileSize) {
+      const sizeEl = document.createElement('span');
+      sizeEl.className = 'font-10 text-secondary';
+      sizeEl.textContent = fmtBytes(info.fileSize);
+      rightCluster.appendChild(sizeEl);
+    }
+    if (info.hfRepoId) {
+      const hfLink = document.createElement('a');
+      hfLink.href = `https://huggingface.co/${info.hfRepoId}`;
+      hfLink.target = '_blank';
+      hfLink.rel = 'noopener noreferrer';
+      hfLink.title = 'Open on HuggingFace';
+      hfLink.style.cssText = 'color:#555577;text-decoration:none;line-height:1;font-size:11px';
+      hfLink.textContent = '↗';
+      hfLink.addEventListener('click', e => e.stopPropagation());
+      rightCluster.appendChild(hfLink);
+    }
+    topRow.appendChild(leftCluster);
+    topRow.appendChild(rightCluster);
+
+    // ── model name
+    const nameEl = document.createElement('div');
+    nameEl.className = 'font-10 text-secondary mb-1';
+    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    nameEl.title = info.name;
+    nameEl.textContent = info.name;
+
+    // ── params row: ctx · slots · arch
+    const paramEl = document.createElement('div');
+    paramEl.className = 'font-10 mb-1';
+    paramEl.style.color = '#555577';
+    const parts = [`ctx ${fmtCtx(info.ctx || 32768)}`, `${info.parallel || 2} slots`];
+    if (info.arch) parts.push(info.arch);
+    if (info.pipeline) parts.push(info.pipeline.replace('text-generation', 'text-gen').replace(/-/g, ' '));
+    paramEl.textContent = parts.join(' · ');
+
+    // ── capability badges
+    card.appendChild(topRow);
+    card.appendChild(nameEl);
+    card.appendChild(paramEl);
+    if (info.caps && info.caps.length) {
+      const capRow = document.createElement('div');
+      capRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin-top:3px';
+      info.caps.forEach(cap => {
+        const badge = document.createElement('span');
+        badge.className = 'font-10';
+        badge.style.cssText = 'background:#1c2230;color:#8ab4d4;border-radius:3px;padding:1px 4px;white-space:nowrap';
+        badge.textContent = cap;
+        capRow.appendChild(badge);
+      });
+      card.appendChild(capRow);
+    }
+
     grid.appendChild(card);
   }
 
@@ -617,13 +679,26 @@ function renderHFResults(hfModels) {
     authorEl.className = 'font-10';
     authorEl.style.color = '#666677';
     authorEl.textContent = author;
+    // repo name + external link side by side
+    const nameRow = document.createElement('div');
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:5px';
     const nameEl = document.createElement('div');
     nameEl.className = 'text-teal fw-semibold';
-    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px';
+    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px';
     nameEl.title = m.id;
     nameEl.textContent = repoName || m.id;
+    const hfLink = document.createElement('a');
+    hfLink.href = `https://huggingface.co/${m.id}`;
+    hfLink.target = '_blank';
+    hfLink.rel = 'noopener noreferrer';
+    hfLink.title = 'Open on HuggingFace';
+    hfLink.style.cssText = 'color:#555577;text-decoration:none;flex-shrink:0;line-height:1';
+    hfLink.textContent = '↗';
+    hfLink.addEventListener('click', e => e.stopPropagation());
+    nameRow.appendChild(nameEl);
+    nameRow.appendChild(hfLink);
     nameBlock.appendChild(authorEl);
-    nameBlock.appendChild(nameEl);
+    nameBlock.appendChild(nameRow);
 
     const statsBlock = document.createElement('div');
     statsBlock.className = 'd-flex flex-column align-items-end gap-1';
@@ -631,8 +706,15 @@ function renderHFResults(hfModels) {
     const dlLikeEl = document.createElement('div');
     dlLikeEl.className = 'font-10';
     dlLikeEl.style.color = '#888899';
-    dlLikeEl.textContent = `↓ ${fmtNum(m.downloads)}  ♥ ${fmtNum(m.likes)}`;
+    dlLikeEl.textContent = `↓ ${fmtNum(m.downloads ?? 0)}  ♥ ${fmtNum(m.likes ?? 0)}`;
     statsBlock.appendChild(dlLikeEl);
+    if (m.totalGgufBytes) {
+      const sizeEl = document.createElement('div');
+      sizeEl.className = 'font-10 fw-semibold';
+      sizeEl.style.color = '#00d4aa';
+      sizeEl.textContent = fmtBytes(m.totalGgufBytes) + ' total';
+      statsBlock.appendChild(sizeEl);
+    }
 
     // ── tag row: arch + pipeline + age ────────────────────────────────
     const tagRow = document.createElement('div');
@@ -646,9 +728,21 @@ function renderHFResults(hfModels) {
     if (m.lastModified) {
       tagRow.appendChild(hfBadge('updated ' + fmtAge(m.lastModified), '#1e1e24', '#666677'));
     }
-
-    header.appendChild(nameBlock);
-    header.appendChild(statsBlock);
+    if (m.quantVariants && m.quantVariants.length) {
+      // Show up to 4 quant pills
+      m.quantVariants.slice(0, 4).forEach(q =>
+        tagRow.appendChild(hfBadge(q, '#1a1a22', quantColor(q)))
+      );
+      if (m.quantVariants.length > 4)
+        tagRow.appendChild(hfBadge(`+${m.quantVariants.length - 4}`, '#1a1a22', '#555577'));
+    }
+    if (m.caps && m.caps.length) {
+      const capRow = document.createElement('div');
+      capRow.className = 'd-flex gap-1 flex-wrap';
+      capRow.style.marginTop = '3px';
+      m.caps.forEach(cap => capRow.appendChild(hfBadge(cap, '#1c2230', '#8ab4d4')));
+      card.appendChild(capRow);
+    }
 
     const fileList = document.createElement('div');
     fileList.style.display = 'none';
@@ -664,7 +758,7 @@ function renderHFResults(hfModels) {
         try {
           const r = await fetch(`/api/hf/files?repo=${encodeURIComponent(m.id)}`);
           const data = await r.json();
-          renderHFFileList(fileList, m.id, data.files || []);
+          renderHFFileList(fileList, m.id, data.files || [], m);
         } catch {
           fileList.innerHTML = '<div class="font-10" style="color:#ff4757">Failed to load files</div>';
         }
@@ -718,7 +812,7 @@ function quantColor(q) {
   return '#888899';
 }
 
-function renderHFFileList(container, repoId, files) {
+function renderHFFileList(container, repoId, files, cardMeta = {}) {
   container.innerHTML = '';
   if (!files.length) {
     container.innerHTML = '<div class="font-10 text-secondary">No GGUF files found</div>';
@@ -777,7 +871,7 @@ function renderHFFileList(container, repoId, files) {
     const btn = document.createElement('button');
     btn.className = 'btn btn-outline-secondary btn-sm py-0 px-2 font-10';
     btn.textContent = 'Pull';
-    btn.addEventListener('click', () => pullHFFile(repoId, f.name, row, btn));
+    btn.addEventListener('click', () => pullHFFile(repoId, f.name, row, btn, { ...cardMeta, hfRepoId: repoId, hfFilename: f.name, fileSize: f.size }));
     right.appendChild(btn);
 
     row.appendChild(left);
@@ -786,14 +880,14 @@ function renderHFFileList(container, repoId, files) {
   });
 }
 
-async function pullHFFile(repoId, filename, rowEl, btn) {
+async function pullHFFile(repoId, filename, rowEl, btn, meta = {}) {
   btn.disabled = true;
-  btn.textContent = 'Starting…';
+  btn.textContent = 'Starting\u2026';
   try {
     const r = await fetch('/api/hf/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId, filename }),
+      body: JSON.stringify({ repoId, filename, meta }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error);
@@ -893,6 +987,8 @@ async function loadHFDownloads() {
 }
 
 function fmtBytes(b) {
+  b = +b;
+  if (!b || !isFinite(b)) return '—';
   if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
   if (b >= 1e6) return (b / 1e6).toFixed(0) + ' MB';
   if (b >= 1e3) return (b / 1e3).toFixed(0) + ' KB';
@@ -900,9 +996,11 @@ function fmtBytes(b) {
 }
 
 function fmtNum(n) {
+  n = +n;
+  if (!isFinite(n)) return '0';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-  return String(n);
+  return String(Math.round(n));
 }
 </script>
 </body>
