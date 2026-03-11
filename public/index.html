@@ -6,6 +6,7 @@
 <title>NeuralForge</title>
 <link id="dynFavicon" rel="icon" type="image/png">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <style>
   .log-line { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 12px; }
   .log-line.info { color: var(--bs-teal); }
@@ -16,9 +17,10 @@
   .model-card.active { border-color: var(--bs-success) !important; background-color: transparent !important; color: inherit !important; }
   .model-card:disabled { opacity: 0.45; cursor: not-allowed; }
   #aliasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  [x-cloak] { display: none !important; }
 </style>
 </head>
-<body>
+<body x-data>
 
 <nav class="navbar navbar-dark bg-dark border-bottom border-secondary px-3 py-2">
   <div class="d-flex align-items-center gap-2">
@@ -29,8 +31,13 @@
     <span class="fw-bold fs-5 text-success">NeuralForge</span>
   </div>
   <div class="d-flex align-items-center gap-3 ms-auto">
-    <span id="statusBadge" class="badge text-bg-secondary">
-      <span id="statusText">CONNECTING…</span>
+    <span class="badge"
+      :class="{
+        'text-bg-warning': $store.nf.anySwitching,
+        'text-bg-success': !$store.nf.anySwitching && $store.nf.runningList.length > 0,
+        'text-bg-secondary': !$store.nf.anySwitching && $store.nf.runningList.length === 0
+      }">
+      <span x-text="$store.nf.statusText">CONNECTING…</span>
     </span>
     <a class="btn btn-outline-secondary btn-sm" href="http://localhost:3000" target="_blank">Open WebUI</a>
   </div>
@@ -42,10 +49,99 @@
   <div class="card bg-dark border-secondary">
     <div class="card-body">
       <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">Models</h6>
-      <div id="aliasGrid"></div>
-      <div class="mt-3" id="discoveredSection" style="display:none">
+      <div id="aliasGrid">
+        <template x-for="[alias, info] in Object.entries($store.nf.models.aliases)" :key="alias">
+          <button
+            class="model-btn model-card btn btn-outline-secondary text-start w-100 p-2"
+            :data-alias="alias"
+            :disabled="$store.nf.instances[alias]?.switching"
+            :class="{ 'border-success active': $store.nf.instances[alias]?.running }"
+            @click="$store.nf.instances[alias]?.running ? null : $store.nf.confirmStart(alias, info.name)">
+
+            <!-- top row: dot + alias + size + hf link + sync btn -->
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <div class="d-flex align-items-center gap-1">
+                <span style="width:7px;height:7px;border-radius:50%;background-color:var(--bs-success);flex-shrink:0"
+                  :style="{ display: $store.nf.instances[alias]?.running ? 'inline-block' : 'none' }"></span>
+                <span class="small fw-semibold" x-text="alias"></span>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <span x-show="info.fileSize" class="text-secondary small" x-text="fmtBytes(info.fileSize)"></span>
+                <a x-show="info.hfRepoId"
+                  :href="`https://huggingface.co/${info.hfRepoId}`"
+                  target="_blank" rel="noopener noreferrer"
+                  title="Open on HuggingFace"
+                  class="text-secondary text-decoration-none"
+                  style="font-size:11px"
+                  @click.stop>↗</a>
+                <template x-if="!info.hfRepoId || !info.arch || !info.caps">
+                  <button
+                    :title="info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to HuggingFace repo'"
+                    class="btn btn-link btn-sm text-secondary p-0"
+                    style="font-size:11px"
+                    x-text="info.hfRepoId ? '↻' : '🔗 HF'"
+                    @click.stop="$store.nf.syncHF(alias, info)">
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- model name -->
+            <div class="text-secondary mb-1" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+              :title="info.name" x-text="info.name"></div>
+
+            <!-- params row -->
+            <div class="text-secondary mb-1" style="font-size:11px"
+              x-text="[
+                `ctx ${fmtCtx(info.ctx || 32768)}`,
+                `${info.parallel || 2} slots`,
+                ...(info.arch ? [info.arch] : []),
+                ...(info.pipeline ? [info.pipeline.replace('text-generation','text-gen').replace(/-/g,' ')] : [])
+              ].join(' · ')">
+            </div>
+
+            <!-- autoload toggle -->
+            <div class="d-flex align-items-center gap-1 mt-1" style="font-size:11px" @click.stop>
+              <input type="checkbox" class="form-check-input mt-0"
+                :id="`autoload-${alias}`"
+                style="width:11px;height:11px;cursor:pointer"
+                :checked="info.autoLoad"
+                @change="$store.nf.setAutoLoad(alias, $event.target.checked, $event.target)">
+              <label :for="`autoload-${alias}`" class="text-secondary mb-0" style="cursor:pointer;font-size:11px">autoload</label>
+            </div>
+
+            <!-- stop button (shown when running) -->
+            <button x-show="$store.nf.instances[alias]?.running"
+              x-cloak
+              class="card-stop-btn btn btn-sm btn-outline-danger w-100 mt-1 py-0"
+              style="font-size:11px"
+              :title="`Stop ${alias}`"
+              @click.stop="$store.nf.stopInstance(alias, $event.target)">■ stop</button>
+
+            <!-- caps badges -->
+            <template x-if="info.caps && info.caps.length">
+              <div class="d-flex flex-wrap gap-1 mt-1">
+                <template x-for="cap in info.caps" :key="cap">
+                  <span class="badge text-bg-secondary" style="font-size:10px" x-text="cap"></span>
+                </template>
+              </div>
+            </template>
+          </button>
+        </template>
+      </div>
+
+      <!-- Discovered models section -->
+      <div class="mt-3" x-show="$store.nf.discoveredExtra.length > 0" x-cloak>
         <p class="text-secondary small mb-2">Discovered (not in models.json)</p>
-        <div class="d-flex flex-wrap gap-2" id="discoveredGrid"></div>
+        <div class="d-flex flex-wrap gap-2">
+          <template x-for="m in $store.nf.discoveredExtra" :key="m.path">
+            <button class="btn btn-outline-secondary btn-sm"
+              :title="m.path"
+              @click="alert('Discovered models: add to models.json aliases to use them.')">
+              <span class="small text-secondary" x-text="m.name"></span>
+            </button>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -53,11 +149,13 @@
   <!-- HuggingFace Hub -->
   <div class="card bg-dark border-secondary">
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleHFPanel()">
+      <div class="d-flex justify-content-between align-items-center" style="cursor:pointer"
+        @click="$store.nf.toggleHF()">
         <h6 class="card-subtitle text-secondary text-uppercase small mb-0">HuggingFace Hub</h6>
-        <span id="hfToggleIcon" class="text-secondary small" style="transition:transform 0.2s">▶</span>
+        <span class="text-secondary small" style="transition:transform 0.2s" id="hfToggleIcon"
+          :style="{ transform: $store.nf.hfOpen ? 'rotate(90deg)' : '' }">▶</span>
       </div>
-      <div id="hfPanel" style="display:none; margin-top:12px">
+      <div x-show="$store.nf.hfOpen" x-cloak style="margin-top:12px">
         <input type="text" id="hfSearchInput" class="form-control form-control-sm mb-2"
           placeholder="Search GGUF models on HuggingFace…" autocomplete="off">
         <div id="hfResults" class="d-flex flex-column gap-1" style="max-height:280px;overflow-y:auto"></div>
@@ -94,7 +192,23 @@
       <div class="card bg-dark border-secondary h-100">
         <div class="card-body">
           <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">Running Models</h6>
-          <div id="instanceList"><span class="text-secondary small">—</span></div>
+          <template x-if="$store.nf.runningAndSwitching.length === 0">
+            <span class="text-secondary small">—</span>
+          </template>
+          <template x-for="(s, i) in $store.nf.runningAndSwitching" :key="s.alias">
+            <div :class="{ 'mb-2 pb-2 border-bottom border-secondary': i < $store.nf.runningAndSwitching.length - 1 }">
+              <div class="d-flex justify-content-between small mb-1">
+                <span class="text-success fw-semibold" x-text="s.model || s.alias || '—'"></span>
+                <span class="text-secondary" x-text="`:${s.port || '?'}`"></span>
+              </div>
+              <div class="d-flex gap-3 text-secondary" style="font-size:11px">
+                <span x-text="`uptime ${s.switching ? '…' : fmtUptime(s.uptime || 0)}`"></span>
+                <span x-show="s.metrics?.tps" x-text="`${s.metrics?.tps} t/s`"></span>
+                <span x-show="s.metrics?.processing != null" x-text="`${s.metrics?.processing} reqs`"></span>
+                <span x-text="`pid ${s.pid || '—'}`"></span>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -103,7 +217,22 @@
       <div class="card bg-dark border-secondary h-100">
         <div class="card-body">
           <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">Ready to Work</h6>
-          <div id="readyList"><span class="text-secondary small">—</span></div>
+          <template x-if="$store.nf.runningList.length === 0">
+            <span class="text-secondary small">—</span>
+          </template>
+          <template x-for="(s, i) in $store.nf.runningList" :key="s.alias">
+            <div :class="{ 'mb-3 pb-2 border-bottom border-secondary': i < $store.nf.runningList.length - 1 }">
+              <div class="small fw-semibold text-success mb-1">
+                <span x-text="s.model || s.alias"></span>
+                <span class="text-secondary" x-text="` :${s.port}`"></span>
+              </div>
+              <div class="small text-secondary">Context: <span class="text-body" x-text="fmtCtx(($store.nf.models.aliases[s.alias]?.ctx) || 32768)"></span></div>
+              <div class="small text-secondary">GPU layers: <span class="text-body" x-text="$store.nf.models.aliases[s.alias]?.gpuLayers ?? 'auto'"></span></div>
+              <div class="small text-secondary">Parallel: <span class="text-body" x-text="$store.nf.models.aliases[s.alias]?.parallel || 2"></span></div>
+              <div class="small">Server: <a :href="`http://localhost:${s.port}`" class="text-success" x-text="`localhost:${s.port}`"></a></div>
+              <div class="small">API Docs: <a :href="`http://localhost:${s.port}/docs`" class="text-success" x-text="`localhost:${s.port}/docs`"></a></div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -121,928 +250,29 @@
 
 </main>
 
-<!-- Load confirmation modal -->
-<div class="modal fade" id="confirmModal" tabindex="-1">
-  <div class="modal-dialog modal-sm">
+<!-- Load confirmation modal (Alpine-driven) -->
+<div x-show="$store.nf.pendingAlias !== null"
+  x-cloak
+  style="position:fixed;inset:0;z-index:1050;display:flex;align-items:center;justify-content:center"
+  @click.self="$store.nf.pendingAlias = null">
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5)"></div>
+  <div class="modal-dialog modal-sm mb-0" style="position:relative;z-index:1">
     <div class="modal-content bg-dark border-secondary">
       <div class="modal-header border-secondary py-2">
         <h6 class="modal-title">Load Model</h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close btn-close-white" @click="$store.nf.pendingAlias = null"></button>
       </div>
       <div class="modal-body">
-        <p class="text-secondary small mb-0" id="confirmText"></p>
+        <p class="text-secondary small mb-0" x-text="`Load &quot;${$store.nf.models.aliases[$store.nf.pendingAlias]?.name}&quot;?`"></p>
       </div>
       <div class="modal-footer border-secondary py-2">
-        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success btn-sm" id="confirmBtn">Load</button>
+        <button class="btn btn-secondary btn-sm" @click="$store.nf.pendingAlias = null">Cancel</button>
+        <button class="btn btn-success btn-sm" @click="$store.nf.doStart()">Load</button>
       </div>
     </div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
-<script>
-// instances: { alias: { running, alias, model, pid, port, uptime, switching, healthy, metrics } }
-let instances = {};
-let models = { aliases: {}, discovered: [] };
-let pendingAlias = null;
-const uptimeTimers = new Map();
-const MAX_LOG_LINES = 200;
-let _confirmModal = null;
-
-// ── Reactive favicon sparkline ────────────────────────────────────────────────
-const _fvCanvas = Object.assign(document.createElement('canvas'), { width: 32, height: 32 });
-const _fvCtx = _fvCanvas.getContext('2d');
-const _fvHist = { busy: [], gtt: [] };
-const _fvLen = 20;
-
-function drawFavicon(busyPct, gttPct) {
-  if (busyPct != null) { _fvHist.busy.push(busyPct); if (_fvHist.busy.length > _fvLen) _fvHist.busy.shift(); }
-  if (gttPct  != null) { _fvHist.gtt.push(gttPct);   if (_fvHist.gtt.length  > _fvLen) _fvHist.gtt.shift(); }
-
-  const ctx = _fvCtx, W = 32, H = 32, pad = 2;
-  const pw = W - pad * 2, ph = H - pad * 2;
-  ctx.clearRect(0, 0, W, H);
-
-  // Dark background with rounded corners
-  ctx.fillStyle = '#212529';
-  ctx.beginPath(); ctx.roundRect(0, 0, W, H, 5); ctx.fill();
-
-  function plot(data, color, fillAlpha) {
-    const n = data.length;
-    if (n < 2) return;
-    const pts = data.map((v, i) => [
-      pad + (i / (n - 1)) * pw,
-      pad + ph - Math.min(100, Math.max(0, v)) / 100 * ph
-    ]);
-    ctx.save();
-    // Filled area
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pad + ph);
-    pts.forEach(([x, y]) => ctx.lineTo(x, y));
-    ctx.lineTo(pts[pts.length - 1][0], pad + ph);
-    ctx.closePath();
-    ctx.fillStyle = color; ctx.globalAlpha = fillAlpha; ctx.fill(); ctx.globalAlpha = 1;
-    // Crisp line on top
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.restore();
-  }
-
-  plot(_fvHist.gtt,  '#fd7e14', 0.35);
-  plot(_fvHist.busy, '#20c997', 0.35);
-
-  document.getElementById('dynFavicon').href = _fvCanvas.toDataURL();
-}
-
-async function init() {
-  _confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
-  await loadModels();
-  await refresh();
-  await loadLogs();
-  connectSSE();
-  setInterval(loadLogs, 2000);
-}
-
-async function loadModels() {
-  try {
-    const r = await fetch('/api/models');
-    models = await r.json();
-    renderModelButtons();
-  } catch(e) { console.error('models load failed', e); }
-}
-
-async function refresh() {
-  try {
-    const [statusR, gpuR] = await Promise.all([fetch('/api/status'), fetch('/api/gpu')]);
-    const statusData = await statusR.json();
-    const gpu = await gpuR.json();
-    updateInstances(statusData.instances || {});
-    updateGpu(gpu);
-  } catch {}
-}
-
-function renderLogs(lines) {
-  const inner = document.getElementById('logInner');
-  inner.innerHTML = '';
-  const frag = document.createDocumentFragment();
-  for (const line of lines) {
-    let cls = 'log-line';
-    if (/error|fail|fatal/i.test(line)) cls += ' err';
-    else if (/warn/i.test(line)) cls += ' warn';
-    else if (/neuralforge|listen|ready|done/i.test(line)) cls += ' info';
-    const div = document.createElement('div');
-    div.className = cls;
-    div.textContent = line;
-    frag.appendChild(div);
-  }
-  inner.appendChild(frag);
-  const body = document.getElementById('logBody');
-  body.scrollTop = body.scrollHeight;
-}
-
-async function loadLogs() {
-  try {
-    const r = await fetch('/api/logs');
-    const data = await r.json();
-    renderLogs(data.lines);
-  } catch {}
-}
-
-function connectSSE() {
-  const es = new EventSource('/events');
-  es.onmessage = e => {
-    const data = JSON.parse(e.data);
-    if (data.type === 'update') {
-      updateInstances(data.statuses || {});
-      updateGpu(data.gpu);
-    } else if (data.type === 'switching') {
-      // Mark the specific alias as switching while it loads
-      instances[data.alias] = { ...(instances[data.alias] || {}), switching: true, alias: data.alias };
-      updateModelButtonStates();
-      updateStatusBadge();
-    } else if (data.type === 'started') {
-      refresh();
-      loadModels();
-    } else if (data.type === 'stopped') {
-      delete instances[data.alias];
-      stopUptimeTimer(data.alias);
-      updateModelButtonStates();
-      updateStatusBadge();
-      renderInstanceList();
-      renderReadyPanel();
-      loadLogs();
-    } else if (data.type === 'hf-progress') {
-      updateHFProgress(data.key, data.bytes, data.total);
-    } else if (data.type === 'hf-done') {
-      onHFDone(data.key, data.alias);
-      loadModels();
-    } else if (data.type === 'hf-error') {
-      onHFError(data.key, data.error);
-    }
-  };
-  es.onerror = () => setTimeout(connectSSE, 5000);
-}
-
-function updateInstances(newStatuses) {
-  // Merge in new statuses; preserve local switching flags for in-flight starts.
-  for (const [alias, st] of Object.entries(newStatuses)) {
-    const prev = instances[alias] || {};
-    instances[alias] = { ...st, metrics: st.metrics || prev.metrics };
-  }
-  // Remove instances that are no longer running and not switching
-  for (const alias of Object.keys(instances)) {
-    if (!newStatuses[alias] && !instances[alias].switching) {
-      delete instances[alias];
-      stopUptimeTimer(alias);
-    }
-  }
-  // Sync uptime timers
-  for (const [alias, st] of Object.entries(instances)) {
-    if (st.running && !uptimeTimers.has(alias)) {
-      uptimeTimers.set(alias, setInterval(() => {
-        if (instances[alias]) instances[alias].uptime = (instances[alias].uptime || 0) + 1;
-        renderInstanceList();
-      }, 1000));
-    } else if (!st.running) {
-      stopUptimeTimer(alias);
-    }
-  }
-  updateStatusBadge();
-  updateModelButtonStates();
-  renderInstanceList();
-  renderReadyPanel();
-}
-
-function stopUptimeTimer(alias) {
-  if (uptimeTimers.has(alias)) {
-    clearInterval(uptimeTimers.get(alias));
-    uptimeTimers.delete(alias);
-  }
-}
-
-function updateStatusBadge() {
-  const badge = document.getElementById('statusBadge');
-  const text  = document.getElementById('statusText');
-  const allInstances = Object.values(instances);
-  const anySwitching = allInstances.some(s => s.switching);
-  const runningList  = allInstances.filter(s => s.running);
-  badge.className = 'badge';
-  if (anySwitching) {
-    badge.classList.add('text-bg-warning');
-    text.textContent = 'LOADING…';
-  } else if (runningList.length > 0) {
-    badge.classList.add('text-bg-success');
-    text.textContent = runningList.length === 1
-      ? runningList[0].model || 'RUNNING'
-      : `${runningList.length} RUNNING`;
-  } else {
-    badge.classList.add('text-bg-secondary');
-    text.textContent = 'STOPPED';
-  }
-}
-
-function renderInstanceList() {
-  const el = document.getElementById('instanceList');
-  const running = Object.values(instances).filter(s => s.running || s.switching);
-  if (!running.length) { el.innerHTML = '<span class="text-secondary small">—</span>'; return; }
-  el.innerHTML = '';
-  running.forEach((s, i) => {
-    const row = document.createElement('div');
-    if (i < running.length - 1) row.className = 'mb-2 pb-2 border-bottom border-secondary';
-    row.innerHTML = `
-      <div class="d-flex justify-content-between small mb-1">
-        <span class="text-success fw-semibold">${s.model || s.alias || '—'}</span>
-        <span class="text-secondary">:${s.port || '?'}</span>
-      </div>
-      <div class="d-flex gap-3 text-secondary" style="font-size:11px">
-        <span>uptime ${s.switching ? '…' : fmtUptime(s.uptime || 0)}</span>
-        ${s.metrics?.tps ? `<span>${s.metrics.tps} t/s</span>` : ''}
-        ${s.metrics?.processing != null ? `<span>${s.metrics.processing} reqs</span>` : ''}
-        <span>pid ${s.pid || '—'}</span>
-      </div>`;
-    el.appendChild(row);
-  });
-}
-
-function renderReadyPanel() {
-  const el = document.getElementById('readyList');
-  const running = Object.values(instances).filter(s => s.running);
-  if (!running.length) { el.innerHTML = '<span class="text-secondary small">—</span>'; return; }
-  el.innerHTML = '';
-  running.forEach((s, i) => {
-    const cfg = models.aliases?.[s.alias] || {};
-    const port = s.port;
-    const div = document.createElement('div');
-    if (i < running.length - 1) div.className = 'mb-3 pb-2 border-bottom border-secondary';
-    div.innerHTML = '<div class="small fw-semibold text-success mb-1">' + (s.model || s.alias) + ' <span class="text-secondary">:' + port + '</span></div>'
-      + '<div class="small text-secondary">Context: <span class="text-body">' + fmtCtx(cfg.ctx || 32768) + '</span></div>'
-      + '<div class="small text-secondary">GPU layers: <span class="text-body">' + (cfg.gpuLayers ?? 'auto') + '</span></div>'
-      + '<div class="small text-secondary">Parallel: <span class="text-body">' + (cfg.parallel || 2) + '</span></div>'
-      + '<div class="small">Server: <a href="http://localhost:' + port + '" class="text-success">localhost:' + port + '</a></div>'
-      + '<div class="small">API Docs: <a href="http://localhost:' + port + '/docs" class="text-success">localhost:' + port + '/docs</a></div>';
-    el.appendChild(div);
-  });
-}
-
-function setBar(barId, valId, displayVal, suffix, usePctForColor, pctOverride) {
-  const bar = document.getElementById(barId);
-  const val = document.getElementById(valId);
-  if (displayVal == null) { val.textContent = '—'; bar.style.width = '0%'; return; }
-
-  const pct = pctOverride !== undefined ? pctOverride : parseFloat(displayVal);
-  val.textContent = `${displayVal}${suffix}`;
-  bar.style.width = `${Math.min(100, pct)}%`;
-
-  if (usePctForColor || pctOverride !== undefined) {
-    bar.className = 'progress-bar' + (pct >= 85 ? ' bg-danger' : pct >= 60 ? ' bg-warning' : ' bg-success');
-  }
-}
-
-function updateGpu(g) {
-  if (!g) return;
-
-  setBar('gpuBusyBar', 'gpuBusyVal', g.busyPct, '%', true);
-  setBar('gttBar', 'gttVal', g.gttUsedGB, ` / ${g.gttTotalGB} GB`,
-    false, g.gttUsedGB && g.gttTotalGB ? (g.gttUsedGB / g.gttTotalGB) * 100 : 0);
-  setBar('vramBar', 'vramVal', g.vramUsedMB, ` / ${g.vramTotalMB} MB`,
-    false, g.vramUsedMB && g.vramTotalMB ? (g.vramUsedMB / g.vramTotalMB) * 100 : 0);
-
-  document.getElementById('gpuClock').textContent = g.clockMhz ? `${g.clockMhz} MHz` : '—';
-  document.getElementById('cpuTemp').textContent = g.cpuTempC != null ? `${g.cpuTempC.toFixed(0)}°C` : '—';
-
-  const gttPct = g.gttUsedGB && g.gttTotalGB
-    ? (parseFloat(g.gttUsedGB) / parseFloat(g.gttTotalGB)) * 100
-    : null;
-  drawFavicon(g.busyPct, gttPct);
-}
-
-
-
-
-
-function fmtCtx(n) {
-  if (!n) return '—';
-  if (n >= 1024) return Math.round(n / 1024) + 'k';
-  return String(n);
-}
-
-function renderModelButtons() {
-  const grid = document.getElementById('aliasGrid');
-  grid.innerHTML = '';
-  for (const [alias, info] of Object.entries(models.aliases)) {
-    const card = document.createElement('button');
-    card.className = 'model-btn model-card btn btn-outline-secondary text-start w-100 p-2';
-    card.dataset.alias = alias;
-    card.onclick = () => {
-      if (instances[alias]?.running) return; // no-op: already loaded
-      confirmStart(alias, info.name);
-    };
-
-    // ── top row: dot indicator + alias + start hint + size
-    const topRow = document.createElement('div');
-    topRow.className = 'd-flex justify-content-between align-items-center mb-1';
-
-    const leftCluster = document.createElement('div');
-    leftCluster.className = 'd-flex align-items-center gap-1';
-    const dot = document.createElement('span');
-    dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background-color:var(--bs-success);display:none;flex-shrink:0';
-    const aliasEl = document.createElement('span');
-    aliasEl.className = 'small fw-semibold';
-    aliasEl.textContent = alias;
-    leftCluster.appendChild(dot);
-    leftCluster.appendChild(aliasEl);
-
-    const rightCluster = document.createElement('div');
-    rightCluster.className = 'd-flex align-items-center gap-2';
-    if (info.fileSize) {
-      const sizeEl = document.createElement('span');
-      sizeEl.className = 'text-secondary small';
-      sizeEl.textContent = fmtBytes(info.fileSize);
-      rightCluster.appendChild(sizeEl);
-    }
-    if (info.hfRepoId) {
-      const hfLink = document.createElement('a');
-      hfLink.href = `https://huggingface.co/${info.hfRepoId}`;
-      hfLink.target = '_blank';
-      hfLink.rel = 'noopener noreferrer';
-      hfLink.title = 'Open on HuggingFace';
-      hfLink.className = 'text-secondary text-decoration-none';
-      hfLink.style.fontSize = '11px';
-      hfLink.textContent = '↗';
-      hfLink.addEventListener('click', e => e.stopPropagation());
-      rightCluster.appendChild(hfLink);
-    }
-
-    // ── HF sync / link button
-    const needsSync = !info.hfRepoId || !info.arch || !info.caps;
-    if (needsSync) {
-      const syncBtn = document.createElement('button');
-      syncBtn.title = info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to HuggingFace repo';
-      syncBtn.className = 'btn btn-link btn-sm text-secondary p-0';
-      syncBtn.style.fontSize = '11px';
-      syncBtn.textContent = info.hfRepoId ? '↻' : '🔗 HF';
-      syncBtn.addEventListener('click', async e => {
-        e.stopPropagation();
-        let repoId = info.hfRepoId;
-        if (!repoId) {
-          repoId = prompt(`HuggingFace repo ID for "${alias}"\n(e.g. unsloth/Qwen3-30B-A3B-GGUF)`);
-          if (!repoId) return;
-          repoId = repoId.trim();
-        }
-        syncBtn.disabled = true;
-        const orig = syncBtn.textContent;
-        syncBtn.textContent = '…';
-        try {
-          const r = await fetch('/api/hf/backfill', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ alias, repoId }),
-          });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || 'backfill failed');
-          loadModels();
-        } catch (err) {
-          alert(`HF backfill failed: ${err.message}`);
-          syncBtn.disabled = false;
-          syncBtn.textContent = orig;
-        }
-      });
-      rightCluster.appendChild(syncBtn);
-    }
-
-    topRow.appendChild(leftCluster);
-    topRow.appendChild(rightCluster);
-
-    // ── model name
-    const nameEl = document.createElement('div');
-    nameEl.className = 'text-secondary mb-1';
-    nameEl.style.cssText = 'font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    nameEl.title = info.name;
-    nameEl.textContent = info.name;
-
-    // ── params row: ctx · slots · arch
-    const paramEl = document.createElement('div');
-    paramEl.className = 'text-secondary mb-1';
-    paramEl.style.fontSize = '11px';
-    const parts = [`ctx ${fmtCtx(info.ctx || 32768)}`, `${info.parallel || 2} slots`];
-    if (info.arch) parts.push(info.arch);
-    if (info.pipeline) parts.push(info.pipeline.replace('text-generation', 'text-gen').replace(/-/g, ' '));
-    paramEl.textContent = parts.join(' · ');
-
-    // ── per-card stop button (shown when running)
-    const stopBtn = document.createElement('button');
-    stopBtn.className = 'card-stop-btn btn btn-sm btn-outline-danger w-100 mt-1 py-0';
-    stopBtn.style.cssText = 'display:none;font-size:11px';
-    stopBtn.title = `Stop ${alias}`;
-    stopBtn.textContent = '■ stop';
-    stopBtn.addEventListener('click', async e => {
-      e.stopPropagation();
-      stopBtn.disabled = true;
-      stopBtn.textContent = '…';
-      try {
-        await fetch('/api/stop', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alias }),
-        });
-      } catch {}
-    });
-
-    // ── autoload toggle row
-    const autoRow = document.createElement('div');
-    autoRow.className = 'd-flex align-items-center gap-1 mt-1';
-    autoRow.style.fontSize = '11px';
-    autoRow.addEventListener('click', e => e.stopPropagation());
-    const chk = document.createElement('input');
-    chk.type = 'checkbox'; chk.id = `autoload-${alias}`;
-    chk.className = 'form-check-input mt-0'; chk.checked = !!info.autoLoad;
-    chk.style.cssText = 'width:11px;height:11px;cursor:pointer';
-    chk.addEventListener('change', async () => {
-      try {
-        const r = await fetch('/api/models/set-autoload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alias, autoLoad: chk.checked }),
-        });
-        if (!r.ok) chk.checked = !chk.checked;
-      } catch { chk.checked = !chk.checked; }
-    });
-    const chkLabel = document.createElement('label');
-    chkLabel.htmlFor = `autoload-${alias}`;
-    chkLabel.className = 'text-secondary mb-0';
-    chkLabel.style.cssText = 'cursor:pointer;font-size:11px';
-    chkLabel.textContent = 'autoload';
-    autoRow.appendChild(chk);
-    autoRow.appendChild(chkLabel);
-
-    card.appendChild(topRow);
-    card.appendChild(nameEl);
-    card.appendChild(paramEl);
-    card.appendChild(autoRow);
-    card.appendChild(stopBtn);
-    if (info.caps && info.caps.length) {
-      const capRow = document.createElement('div');
-      capRow.className = 'd-flex flex-wrap gap-1 mt-1';
-      info.caps.forEach(cap => {
-        const badge = document.createElement('span');
-        badge.className = 'badge text-bg-secondary';
-        badge.style.fontSize = '10px';
-        badge.textContent = cap;
-        capRow.appendChild(badge);
-      });
-      card.appendChild(capRow);
-    }
-
-    grid.appendChild(card);
-  }
-
-  const discGrid = document.getElementById('discoveredGrid');
-  const discSection = document.getElementById('discoveredSection');
-  const extra = (models.discovered || []).filter(d => {
-    return !Object.values(models.aliases).some(a => d.path.endsWith(a.model.replace('~/', '').replace('~', '')));
-  });
-
-  if (extra.length > 0) {
-    discGrid.innerHTML = '';
-    extra.forEach(m => {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-outline-secondary btn-sm';
-      btn.innerHTML = `<span class="small text-secondary">${m.name}</span>`;
-      btn.title = m.path;
-      btn.onclick = () => alert('Discovered models: add to models.json aliases to use them.');
-      discGrid.appendChild(btn);
-    });
-    discSection.style.display = 'block';
-  } else {
-    discSection.style.display = 'none';
-  }
-}
-
-function updateModelButtonStates() {
-  document.querySelectorAll('.model-btn[data-alias]').forEach(card => {
-    const alias = card.dataset.alias;
-    const inst = instances[alias];
-    const isRunning  = inst?.running === true;
-    const isSwitching = inst?.switching === true;
-    card.disabled = isSwitching;
-    card.classList.toggle('border-success', isRunning);
-    card.classList.toggle('active', isRunning);
-    const dot = card.querySelector('span[style*="border-radius:50%"]');
-    if (dot) dot.style.display = isRunning ? 'inline-block' : 'none';
-    const stopBtn = card.querySelector('.card-stop-btn');
-    if (stopBtn) stopBtn.style.display = isRunning ? 'block' : 'none';
-  });
-}
-
-function confirmStart(alias, name) {
-  pendingAlias = alias;
-  document.getElementById('confirmText').textContent = `Load "${name}"?`;
-  document.getElementById('confirmBtn').onclick = doStart;
-  _confirmModal.show();
-}
-
-async function doStart() {
-  _confirmModal.hide();
-  if (!pendingAlias) return;
-  // Optimistically mark as switching so the card disables immediately.
-  instances[pendingAlias] = { ...(instances[pendingAlias] || {}), switching: true, alias: pendingAlias };
-  updateModelButtonStates();
-  updateStatusBadge();
-  try {
-    await fetch('/api/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alias: pendingAlias }),
-    });
-  } catch(e) {
-    console.error(e);
-    delete instances[pendingAlias];
-    updateModelButtonStates();
-    updateStatusBadge();
-  }
-  pendingAlias = null;
-}
-
-function fmtUptime(s) {
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s`;
-  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
-  return `${h}h ${m}m`;
-}
-
-init();
-
-// ── HuggingFace Hub ────────────────────────────────────────────────
-let hfOpen = false;
-let hfSearchTimer = null;
-// key → { barEl, labelEl, rowEl }
-const hfProgressEls = new Map();
-
-function toggleHFPanel() {
-  hfOpen = !hfOpen;
-  document.getElementById('hfPanel').style.display = hfOpen ? 'block' : 'none';
-  document.getElementById('hfToggleIcon').style.transform = hfOpen ? 'rotate(90deg)' : '';
-  if (hfOpen) {
-    // Restore any active downloads from server on first open
-    loadHFDownloads();
-    const inp = document.getElementById('hfSearchInput');
-    inp.removeEventListener('input', onHFInput);
-    inp.addEventListener('input', onHFInput);
-    inp.focus();
-  }
-}
-
-function onHFInput(e) {
-  clearTimeout(hfSearchTimer);
-  const q = e.target.value.trim();
-  if (q.length < 2) { document.getElementById('hfResults').innerHTML = ''; return; }
-  hfSearchTimer = setTimeout(() => doHFSearch(q), 420);
-}
-
-async function doHFSearch(q) {
-  const container = document.getElementById('hfResults');
-  container.innerHTML = '<div class="small text-secondary py-1">Searching…</div>';
-  try {
-    const r = await fetch(`/api/hf/search?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    renderHFResults(data.models || []);
-  } catch {
-    container.innerHTML = '<div class="small text-danger">Search failed</div>';
-  }
-}
-
-function renderHFResults(hfModels) {
-  const container = document.getElementById('hfResults');
-  container.innerHTML = '';
-  if (!hfModels.length) {
-    container.innerHTML = '<div class="small text-secondary py-1">No results</div>';
-    return;
-  }
-  hfModels.forEach(m => {
-    const card = document.createElement('div');
-    card.className = 'border border-secondary rounded p-2 mb-1';
-    card.style.fontSize = '11px';
-
-    // ── header row: repo name + download/like counts ──────────────────
-    const [author, repoName] = m.id.includes('/') ? m.id.split('/') : ['', m.id];
-    const header = document.createElement('div');
-    header.className = 'd-flex justify-content-between align-items-start';
-    header.style.cursor = 'pointer';
-    header.style.gap = '8px';
-
-    const nameBlock = document.createElement('div');
-    nameBlock.style.minWidth = '0';
-    const authorEl = document.createElement('div');
-    authorEl.className = 'text-secondary';
-    authorEl.style.fontSize = '10px';
-    authorEl.textContent = author;
-    const nameRow = document.createElement('div');
-    nameRow.className = 'd-flex align-items-center gap-1';
-    const nameEl = document.createElement('div');
-    nameEl.className = 'text-success fw-semibold';
-    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px';
-    nameEl.title = m.id;
-    nameEl.textContent = repoName || m.id;
-    const hfLink = document.createElement('a');
-    hfLink.href = `https://huggingface.co/${m.id}`;
-    hfLink.target = '_blank';
-    hfLink.rel = 'noopener noreferrer';
-    hfLink.title = 'Open on HuggingFace';
-    hfLink.className = 'text-secondary text-decoration-none';
-    hfLink.style.cssText = 'flex-shrink:0;line-height:1';
-    hfLink.textContent = '↗';
-    hfLink.addEventListener('click', e => e.stopPropagation());
-    nameRow.appendChild(nameEl);
-    nameRow.appendChild(hfLink);
-    nameBlock.appendChild(authorEl);
-    nameBlock.appendChild(nameRow);
-
-    const statsBlock = document.createElement('div');
-    statsBlock.className = 'd-flex flex-column align-items-end gap-1';
-    statsBlock.style.flexShrink = '0';
-    const dlLikeEl = document.createElement('div');
-    dlLikeEl.className = 'text-secondary';
-    dlLikeEl.style.fontSize = '10px';
-    dlLikeEl.textContent = `↓ ${fmtNum(m.downloads ?? 0)}  ♥ ${fmtNum(m.likes ?? 0)}`;
-    statsBlock.appendChild(dlLikeEl);
-    if (m.totalGgufBytes) {
-      const sizeEl = document.createElement('div');
-      sizeEl.className = 'text-success fw-semibold';
-      sizeEl.style.fontSize = '10px';
-      sizeEl.textContent = fmtBytes(m.totalGgufBytes) + ' total';
-      statsBlock.appendChild(sizeEl);
-    }
-
-    // ── tag row: arch + pipeline + age ────────────────────────────────
-    const tagRow = document.createElement('div');
-    tagRow.className = 'd-flex gap-1 flex-wrap mt-1';
-    if (m.arch) tagRow.appendChild(hfBadge(m.arch, 'info'));
-    if (m.pipeline) tagRow.appendChild(hfBadge(m.pipeline.replace(/-/g, ' ').replace('text generation', 'text-gen'), 'secondary'));
-    if (m.lastModified) tagRow.appendChild(hfBadge('updated ' + fmtAge(m.lastModified), 'secondary'));
-    if (m.quantVariants && m.quantVariants.length) {
-      m.quantVariants.slice(0, 4).forEach(q => tagRow.appendChild(hfQuantBadge(q)));
-      if (m.quantVariants.length > 4) tagRow.appendChild(hfBadge(`+${m.quantVariants.length - 4}`, 'secondary'));
-    }
-    if (m.caps && m.caps.length) {
-      m.caps.forEach(cap => tagRow.appendChild(hfBadge(cap, 'primary')));
-    }
-
-    const fileList = document.createElement('div');
-    fileList.style.display = 'none';
-    fileList.style.marginTop = '6px';
-
-    let loaded = false;
-    header.addEventListener('click', async () => {
-      const open = fileList.style.display !== 'none';
-      fileList.style.display = open ? 'none' : 'block';
-      if (!open && !loaded) {
-        loaded = true;
-        fileList.innerHTML = '<div class="small text-secondary">Loading files…</div>';
-        try {
-          const r = await fetch(`/api/hf/files?repo=${encodeURIComponent(m.id)}`);
-          const data = await r.json();
-          renderHFFileList(fileList, m.id, data.files || [], m);
-        } catch {
-          fileList.innerHTML = '<div class="small text-danger">Failed to load files</div>';
-        }
-      }
-    });
-
-    card.appendChild(header);
-    card.appendChild(tagRow);
-    card.appendChild(fileList);
-    container.appendChild(card);
-  });
-}
-
-function hfBadge(text, variant) {
-  const s = document.createElement('span');
-  s.className = `badge text-bg-${variant}`;
-  s.style.fontSize = '10px';
-  s.textContent = text;
-  return s;
-}
-
-function hfQuantBadge(q) {
-  const s = document.createElement('span');
-  s.className = 'badge';
-  s.style.cssText = `font-size:10px;background-color:#1a2030;color:${quantColor(q)}`;
-  s.textContent = q;
-  return s;
-}
-
-function fmtAge(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const d = Math.floor(diff / 86400000);
-  if (d < 1) return 'today';
-  if (d < 7) return `${d}d ago`;
-  if (d < 31) return `${Math.floor(d/7)}w ago`;
-  if (d < 365) return `${Math.floor(d/30)}mo ago`;
-  return `${Math.floor(d/365)}y ago`;
-}
-
-// Quant quality tier → color
-const QUANT_COLORS = {
-  F32:'#adb5bd', BF16:'#adb5bd', F16:'#adb5bd',
-  Q8_0:'#4dabce', Q6_K:'#4dabce',
-  Q5_K_M:'#20c997', Q5_K_S:'#20c997', Q5_0:'#20c997', Q5_1:'#20c997',
-  Q4_K_M:'#7ecb7e', Q4_K_S:'#7ecb7e', Q4_0:'#7ecb7e', Q4_1:'#7ecb7e',
-  Q3_K_M:'#fd7e14', Q3_K_S:'#fd7e14', Q3_K_L:'#fd7e14',
-  Q2_K:'#dc3545',
-};
-function quantColor(q) {
-  if (!q) return '#6c757d';
-  if (QUANT_COLORS[q]) return QUANT_COLORS[q];
-  if (q.startsWith('IQ')) return '#c084fc';
-  if (q.startsWith('Q8') || q.startsWith('Q6')) return '#4dabce';
-  if (q.startsWith('Q5')) return '#20c997';
-  if (q.startsWith('Q4')) return '#7ecb7e';
-  if (q.startsWith('Q3')) return '#fd7e14';
-  if (q.startsWith('Q2')) return '#dc3545';
-  return '#6c757d';
-}
-
-function renderHFFileList(container, repoId, files, cardMeta = {}) {
-  container.innerHTML = '';
-  if (!files.length) { container.innerHTML = '<div class="small text-secondary">No GGUF files found</div>'; return; }
-  // Sort: shards first (skipping shards 2+), then by name
-  const visible = files.filter(f => {
-    const m = f.name.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/);
-    return !m || m[1] === '00001';
-  });
-  (visible.length ? visible : files).forEach(f => {
-    const isShard = /-[0-9]{5}-of-[0-9]{5}\.gguf$/.test(f.name);
-    const row = document.createElement('div');
-    row.className = 'd-flex justify-content-between align-items-center py-1 border-top border-secondary gap-2';
-    row.style.fontSize = '11px';
-    row.id = 'hf-row-' + btoa(repoId + '/' + f.name).replace(/[^a-zA-Z0-9]/g, '');
-
-    const left = document.createElement('div');
-    left.style.cssText = 'min-width:0;flex:1;display:flex;align-items:center;gap:6px';
-
-    const qBadge = document.createElement('span');
-    qBadge.style.cssText = `color:${quantColor(f.quant)};font-weight:600;flex-shrink:0;min-width:52px;font-size:11px`;
-    qBadge.textContent = f.quant || '—';
-
-    const nameEl = document.createElement('span');
-    nameEl.style.cssText = 'color:#6c757d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
-    nameEl.textContent = f.name.replace(/^.*\//, '');
-    nameEl.title = f.name;
-    left.appendChild(qBadge); left.appendChild(nameEl);
-    if (isShard) {
-      const shardTag = document.createElement('span');
-      shardTag.className = 'text-secondary';
-      shardTag.style.fontSize = '10px';
-      shardTag.textContent = '(sharded)';
-      left.appendChild(shardTag);
-    }
-
-    const right = document.createElement('div');
-    right.className = 'd-flex align-items-center gap-2';
-    right.style.flexShrink = '0';
-
-    if (f.size) {
-      const sizeEl = document.createElement('span');
-      sizeEl.className = 'text-secondary';
-      sizeEl.style.fontSize = '10px';
-      sizeEl.textContent = fmtBytes(f.size);
-      right.appendChild(sizeEl);
-    }
-
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-outline-secondary btn-sm py-0 px-2';
-    btn.style.fontSize = '10px';
-    btn.textContent = 'Pull';
-    btn.addEventListener('click', () => pullHFFile(repoId, f.name, row, btn, { ...cardMeta, hfRepoId: repoId, hfFilename: f.name, fileSize: f.size }));
-    right.appendChild(btn);
-
-    row.appendChild(left);
-    row.appendChild(right);
-    container.appendChild(row);
-  });
-}
-
-async function pullHFFile(repoId, filename, rowEl, btn, meta = {}) {
-  btn.disabled = true;
-  btn.textContent = 'Starting\u2026';
-  try {
-    const r = await fetch('/api/hf/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoId, filename, meta }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error);
-    // Add progress row to the active downloads panel
-    addHFDownloadRow(data.key, repoId, filename);
-    btn.textContent = '↓…';
-  } catch (e) {
-    btn.disabled = false;
-    btn.textContent = 'Error';
-    btn.title = e.message;
-    setTimeout(() => { btn.disabled = false; btn.textContent = 'Pull'; btn.title = ''; }, 4000);
-  }
-}
-
-function addHFDownloadRow(key, repoId, filename) {
-  const panel = document.getElementById('hfActiveDownloads');
-  if (panel.children.length === 0) panel.style.marginTop = '10px';
-
-  const wrap = document.createElement('div');
-  wrap.id = 'hfdl-' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
-
-  const topRow = document.createElement('div');
-  topRow.className = 'd-flex justify-content-between small mb-1';
-  const nameEl = document.createElement('span');
-  nameEl.className = 'text-secondary text-truncate';
-  nameEl.textContent = filename;
-  const labelEl = document.createElement('span');
-  labelEl.className = 'text-success flex-shrink-0';
-  labelEl.textContent = '0%';
-  topRow.appendChild(nameEl);
-  topRow.appendChild(labelEl);
-
-  const progWrap = document.createElement('div');
-  progWrap.className = 'progress';
-  progWrap.style.height = '4px';
-  const barEl = document.createElement('div');
-  barEl.className = 'progress-bar bg-success';
-  barEl.style.width = '0%';
-  barEl.style.transition = 'width 0.4s ease';
-  progWrap.appendChild(barEl);
-
-  wrap.appendChild(topRow);
-  wrap.appendChild(progWrap);
-  panel.appendChild(wrap);
-
-  hfProgressEls.set(key, { barEl, labelEl, wrap });
-}
-
-function updateHFProgress(key, bytes, total) {
-  const el = hfProgressEls.get(key);
-  if (!el) return;
-  if (total > 0) {
-    const pct = Math.round((bytes / total) * 100);
-    el.barEl.style.width = pct + '%';
-    el.labelEl.textContent = `${pct}% · ${fmtBytes(bytes)} / ${fmtBytes(total)}`;
-  } else {
-    el.labelEl.textContent = fmtBytes(bytes);
-  }
-}
-
-function onHFDone(key, alias) {
-  const el = hfProgressEls.get(key);
-  if (el) {
-    el.barEl.style.width = '100%';
-    el.barEl.className = 'progress-bar bg-success';
-    el.labelEl.textContent = `✓ done · alias: ${alias}`;
-    setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 8000);
-  }
-}
-
-function onHFError(key, errMsg) {
-  const el = hfProgressEls.get(key);
-  if (el) {
-    el.barEl.className = 'progress-bar bg-danger';
-    el.barEl.style.width = '100%';
-    el.labelEl.textContent = '✗ ' + errMsg;
-    el.labelEl.className = 'text-danger flex-shrink-0';
-    setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 10000);
-  }
-}
-
-async function loadHFDownloads() {
-  try {
-    const r = await fetch('/api/hf/downloads');
-    const data = await r.json();
-    for (const d of data.downloads) {
-      if (!d.done && !d.error && !hfProgressEls.has(d.key)) {
-        addHFDownloadRow(d.key, d.repoId, d.filename);
-        updateHFProgress(d.key, d.bytes, d.total);
-      }
-    }
-  } catch {}
-}
-
-function fmtBytes(b) {
-  b = +b;
-  if (!b || !isFinite(b)) return '—';
-  if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
-  if (b >= 1e6) return (b / 1e6).toFixed(0) + ' MB';
-  if (b >= 1e3) return (b / 1e3).toFixed(0) + ' KB';
-  return b + ' B';
-}
-
-function fmtNum(n) {
-  n = +n;
-  if (!isFinite(n)) return '0';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-  return String(Math.round(n));
-}
-</script>
+<script src="app.js"></script>
 </body>
 </html>

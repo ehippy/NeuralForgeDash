@@ -748,12 +748,18 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // Static files — serve index.html for everything else
-  const staticPath = join(__dirname, 'public', 'index.html');
+  // Silence the browser's automatic favicon.ico request (we use a dynamic canvas favicon)
+  if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+
+  // Static files
+  const ext = req.url.includes('.') ? req.url.split('.').pop().split('?')[0] : '';
+  const mime = { html: 'text/html', js: 'text/javascript', css: 'text/css', png: 'image/png', ico: 'image/x-icon' };
+  const staticFile = ext && mime[ext] ? req.url.replace(/\?.*$/, '') : '/index.html';
+  const staticPath = join(__dirname, 'public', staticFile.replace(/^\//, ''));
   try {
-    const html = readFileSync(staticPath);
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(html);
+    const content = readFileSync(staticPath);
+    res.writeHead(200, { 'Content-Type': mime[ext] || 'text/html' });
+    res.end(content);
   } catch {
     res.writeHead(404);
     res.end('Not found');
