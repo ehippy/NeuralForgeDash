@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,157 +7,149 @@
 <link id="dynFavicon" rel="icon" type="image/png">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  body { background-color: #0d0d0f; color: #e8e8f0; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 13px; }
-  .text-teal { color: #00d4aa !important; }
-  .text-teal-dim { color: #888899 !important; }
-  .font-10 { font-size: 10px; }
-  .font-11 { font-size: 11px; }
-  .font-12 { font-size: 12px; }
-  .font-14 { font-size: 14px; }
-  .letter-spacing { letter-spacing: 0.15em; text-transform: uppercase; }
-  .log-body { overflow-y: auto; font-size: 11px; line-height: 1.6; }
-  .log-line { white-space: pre-wrap; word-break: break-all; }
-  .log-line.info { color: #00d4aa; }
-  .log-line.warn { color: #ffa502; }
-  .log-line.err { color: #ff4757; }
-  .overlay { display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.7); z-index: 100; }
-  .overlay.open { display: flex; align-items: center; justify-content: center; }
-  .dialog { background-color: #141418; border: 1px solid #2a2a35; border-radius: 10px; padding: 24px; max-width: 340px; width: 90%; }
-  #aliasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 8px; }
-  .model-card { background: transparent; border: 1px solid #2a2a35; border-radius: 8px; padding: 10px 12px; cursor: pointer; text-align: left; transition: border-color 0.15s; width: 100%; }
-  .model-card:hover:not(:disabled) { border-color: #444455; }
-  .model-card.active { border-color: #00d4aa; }
-  .model-card.last-active { border-color: #555566; }
+  .log-line { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 12px; }
+  .log-line.info { color: var(--bs-teal); }
+  .log-line.warn { color: var(--bs-warning); }
+  .log-line.err  { color: var(--bs-danger); }
+  .model-card { cursor: pointer; transition: border-color 0.15s; }
+  .model-card:hover:not(:disabled) { border-color: var(--bs-primary) !important; background-color: transparent !important; color: inherit !important; }
+  .model-card.active { border-color: var(--bs-success) !important; background-color: transparent !important; color: inherit !important; }
   .model-card:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn-teal { background-color: #00d4aa; border-color: #00d4aa; color: #0d0d0f; }
-  .btn-teal:hover { background-color: #00b894; border-color: #00b894; color: #0d0d0f; }
+  #aliasGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 </style>
 </head>
 <body>
 
-<header class="bg-dark border-secondary border-bottom d-flex align-items-center justify-content-between px-3 py-2">
+<nav class="navbar navbar-dark bg-dark border-bottom border-secondary px-3 py-2">
   <div class="d-flex align-items-center gap-2">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:22px;height:22px;color:#00d4aa">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:22px;height:22px" class="text-success">
       <polygon points="12,2 22,7 22,17 12,22 2,17 2,7"/>
       <circle cx="12" cy="12" r="3"/>
     </svg>
-    <span class="text-teal fw-bold" style="font-size:16px;letter-spacing:0.05em">NeuralForge</span>
+    <span class="fw-bold fs-5 text-success">NeuralForge</span>
   </div>
-  <div class="d-flex align-items-center gap-3">
-    <div class="badge" id="statusBadge">
-      <div class="dot me-2" id="statusDot"></div>
-      <span id="statusText">CONNECTING...</span>
-    </div>
-    <div class="d-flex gap-2">
-      <a class="btn btn-outline-secondary btn-sm" href="http://localhost:3000" target="_blank">Open WebUI</a>
-    </div>
+  <div class="d-flex align-items-center gap-3 ms-auto">
+    <span id="statusBadge" class="badge text-bg-secondary">
+      <span id="statusText">CONNECTING…</span>
+    </span>
+    <a class="btn btn-outline-secondary btn-sm" href="http://localhost:3000" target="_blank">Open WebUI</a>
   </div>
-</header>
+</nav>
 
-<main class="container-fluid px-4 py-3 d-flex flex-column gap-3" style="max-height:100vh">
-  <div class="bg-dark border border-secondary rounded-3 p-3">
-    <div class="font-10 letter-spacing text-secondary mb-3">Switch Model</div>
-    <div id="aliasGrid"></div>
-    <div class="mt-3" id="discoveredSection" style="display:none">
-      <div class="font-10 text-secondary mb-2">Discovered</div>
-      <div class="d-flex flex-wrap gap-2" id="discoveredGrid"></div>
-    </div>
-  </div>
+<main class="container-fluid px-3 py-3 d-flex flex-column gap-3">
 
-  <div class="bg-dark border border-secondary rounded-3 p-3">
-    <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleHFPanel()">
-      <div class="font-10 letter-spacing text-secondary">HuggingFace Hub</div>
-      <span id="hfToggleIcon" class="font-11 text-secondary" style="transition:transform 0.2s">▶</span>
-    </div>
-    <div id="hfPanel" style="display:none; margin-top:12px">
-      <div class="d-flex gap-2 mb-2">
-        <input type="text" id="hfSearchInput" class="form-control form-control-sm bg-dark border-secondary text-light"
-          placeholder="Search GGUF models on HuggingFace…" autocomplete="off" style="font-size:11px">
+  <!-- Model grid -->
+  <div class="card bg-dark border-secondary">
+    <div class="card-body">
+      <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">Models</h6>
+      <div id="aliasGrid"></div>
+      <div class="mt-3" id="discoveredSection" style="display:none">
+        <p class="text-secondary small mb-2">Discovered (not in models.json)</p>
+        <div class="d-flex flex-wrap gap-2" id="discoveredGrid"></div>
       </div>
-      <div id="hfResults" class="d-flex flex-column gap-1" style="max-height:280px;overflow-y:auto"></div>
-      <div id="hfActiveDownloads" class="d-flex flex-column gap-2"></div>
     </div>
   </div>
 
+  <!-- HuggingFace Hub -->
+  <div class="card bg-dark border-secondary">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleHFPanel()">
+        <h6 class="card-subtitle text-secondary text-uppercase small mb-0">HuggingFace Hub</h6>
+        <span id="hfToggleIcon" class="text-secondary small" style="transition:transform 0.2s">▶</span>
+      </div>
+      <div id="hfPanel" style="display:none; margin-top:12px">
+        <input type="text" id="hfSearchInput" class="form-control form-control-sm mb-2"
+          placeholder="Search GGUF models on HuggingFace…" autocomplete="off">
+        <div id="hfResults" class="d-flex flex-column gap-1" style="max-height:280px;overflow-y:auto"></div>
+        <div id="hfActiveDownloads" class="d-flex flex-column gap-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
   <div class="row g-3">
     <div class="col-12 col-lg-4">
-      <div class="bg-dark border border-secondary rounded-3 p-3">
-        <div class="font-10 letter-spacing text-secondary mb-3">GPU</div>
-        <div class="mb-3">
-          <div class="d-flex justify-content-between font-11 mb-1">
-            <span class="text-secondary">Busy</span>
-            <span class="font-11" id="gpuBusyVal">—</span>
+      <div class="card bg-dark border-secondary h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">GPU</h6>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small mb-1"><span class="text-secondary">Busy</span><span id="gpuBusyVal">—</span></div>
+            <div class="progress" style="height:6px"><div class="progress-bar" id="gpuBusyBar" role="progressbar" style="width:0%"></div></div>
           </div>
-          <div class="progress mb-2"><div class="progress-bar" id="gpuBusyBar" role="progressbar" style="width:0%"></div></div>
-        </div>
-        <div class="mb-3">
-          <div class="d-flex justify-content-between font-11 mb-1">
-            <span class="text-secondary">GTT Memory</span>
-            <span class="font-11" id="gttVal">—</span>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small mb-1"><span class="text-secondary">GTT Memory</span><span id="gttVal">—</span></div>
+            <div class="progress" style="height:6px"><div class="progress-bar bg-success" id="gttBar" role="progressbar" style="width:0%"></div></div>
           </div>
-          <div class="progress mb-2"><div class="progress-bar bg-success" id="gttBar" role="progressbar" style="width:0%"></div></div>
-        </div>
-        <div class="mb-3">
-          <div class="d-flex justify-content-between font-11 mb-1">
-            <span class="text-secondary">VRAM</span>
-            <span class="font-11" id="vramVal">—</span>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small mb-1"><span class="text-secondary">VRAM</span><span id="vramVal">—</span></div>
+            <div class="progress" style="height:6px"><div class="progress-bar" id="vramBar" role="progressbar" style="width:0%"></div></div>
           </div>
-          <div class="progress mb-2"><div class="progress-bar" id="vramBar" role="progressbar" style="width:0%"></div></div>
-        </div>
-        <div class="d-flex justify-content-between font-11 mb-1">
-          <span class="text-secondary">Clock</span>
-          <span class="font-11" id="gpuClock">—</span>
-        </div>
-        <div class="d-flex justify-content-between font-11">
-          <span class="text-secondary">CPU Temp</span>
-          <span class="font-11" id="cpuTemp">—</span>
+          <div class="d-flex justify-content-between small mb-1"><span class="text-secondary">Clock</span><span id="gpuClock">—</span></div>
+          <div class="d-flex justify-content-between small"><span class="text-secondary">CPU Temp</span><span id="cpuTemp">—</span></div>
         </div>
       </div>
     </div>
 
     <div class="col-12 col-lg-4">
-      <div class="bg-dark border border-secondary rounded-3 p-3">
-        <div class="font-10 letter-spacing text-secondary mb-3">RUNNING MODELS</div>
-        <div id="instanceList"><span class="font-11 text-secondary">—</span></div>
+      <div class="card bg-dark border-secondary h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">Running Models</h6>
+          <div id="instanceList"><span class="text-secondary small">—</span></div>
+        </div>
       </div>
     </div>
 
     <div class="col-12 col-lg-4">
-      <div class="bg-dark border border-secondary rounded-3 p-3">
-        <div class="font-10 letter-spacing text-secondary mb-3">READY TO WORK</div>
-        <div class="font-11 text-secondary">
-          <div id="readyList"><span class="font-11 text-secondary">—</span></div>
+      <div class="card bg-dark border-secondary h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-3 text-secondary text-uppercase small">Ready to Work</h6>
+          <div id="readyList"><span class="text-secondary small">—</span></div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="bg-dark border border-secondary rounded-3 p-3" style="height:200px; display:flex; flex-direction:column">
-    <div class="font-10 letter-spacing text-secondary mb-2">Server Log</div>
-    <div class="log-body bg-dark border border-secondary rounded p-2" style="flex:1; overflow-y:auto" id="logBody">
-      <div id="logInner"></div>
+  <!-- Server log -->
+  <div class="card bg-dark border-secondary" style="height:200px;display:flex;flex-direction:column">
+    <div class="card-body d-flex flex-column p-2" style="min-height:0">
+      <h6 class="card-subtitle mb-2 text-secondary text-uppercase small px-1">Server Log</h6>
+      <div class="border border-secondary rounded p-2 flex-grow-1 overflow-auto" id="logBody">
+        <div id="logInner"></div>
+      </div>
     </div>
   </div>
+
 </main>
 
-<div class="overlay" id="confirmOverlay">
-  <div class="dialog">
-    <h3 class="font-14 mb-3">Load Model</h3>
-    <p class="font-12 mb-4 text-secondary" id="confirmText"></p>
-    <div class="d-flex justify-content-end gap-2">
-      <button class="btn btn-secondary btn-sm" onclick="closeConfirm()">Cancel</button>
-      <button class="btn btn-teal btn-sm" id="confirmBtn">Load</button>
+<!-- Load confirmation modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary py-2">
+        <h6 class="modal-title">Load Model</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary small mb-0" id="confirmText"></p>
+      </div>
+      <div class="modal-footer border-secondary py-2">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success btn-sm" id="confirmBtn">Load</button>
+      </div>
     </div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 // instances: { alias: { running, alias, model, pid, port, uptime, switching, healthy, metrics } }
 let instances = {};
 let models = { aliases: {}, discovered: [] };
 let pendingAlias = null;
-const uptimeTimers = new Map(); // alias -> intervalId
+const uptimeTimers = new Map();
 const MAX_LOG_LINES = 200;
+let _confirmModal = null;
 
 // ── Reactive favicon sparkline ────────────────────────────────────────────────
 const _fvCanvas = Object.assign(document.createElement('canvas'), { width: 32, height: 32 });
@@ -174,7 +166,7 @@ function drawFavicon(busyPct, gttPct) {
   ctx.clearRect(0, 0, W, H);
 
   // Dark background with rounded corners
-  ctx.fillStyle = '#141418';
+  ctx.fillStyle = '#212529';
   ctx.beginPath(); ctx.roundRect(0, 0, W, H, 5); ctx.fill();
 
   function plot(data, color, fillAlpha) {
@@ -199,13 +191,14 @@ function drawFavicon(busyPct, gttPct) {
     ctx.restore();
   }
 
-  plot(_fvHist.gtt,  '#ff9f43', 0.35); // GTT: amber (behind)
-  plot(_fvHist.busy, '#00d4aa', 0.35); // GPU busy: teal (front)
+  plot(_fvHist.gtt,  '#fd7e14', 0.35);
+  plot(_fvHist.busy, '#20c997', 0.35);
 
   document.getElementById('dynFavicon').href = _fvCanvas.toDataURL();
 }
 
 async function init() {
+  _confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
   await loadModels();
   await refresh();
   await loadLogs();
@@ -332,29 +325,21 @@ function stopUptimeTimer(alias) {
 
 function updateStatusBadge() {
   const badge = document.getElementById('statusBadge');
-  const dot = document.getElementById('statusDot');
-  const text = document.getElementById('statusText');
-  badge.className = 'badge';
-  dot.className = 'dot';
-
+  const text  = document.getElementById('statusText');
   const allInstances = Object.values(instances);
   const anySwitching = allInstances.some(s => s.switching);
-  const runningList = allInstances.filter(s => s.running);
-
+  const runningList  = allInstances.filter(s => s.running);
+  badge.className = 'badge';
   if (anySwitching) {
-    badge.style.borderColor = '#ffa502';
-    badge.style.color = '#ffa502';
-    dot.classList.add('pulse');
-    text.textContent = 'LOADING...';
+    badge.classList.add('text-bg-warning');
+    text.textContent = 'LOADING…';
   } else if (runningList.length > 0) {
-    badge.style.borderColor = '#00d4aa';
-    badge.style.color = '#00d4aa';
+    badge.classList.add('text-bg-success');
     text.textContent = runningList.length === 1
-      ? `● ${runningList[0].model || 'RUNNING'}`
-      : `● ${runningList.length} RUNNING`;
+      ? runningList[0].model || 'RUNNING'
+      : `${runningList.length} RUNNING`;
   } else {
-    badge.style.borderColor = '#888899';
-    badge.style.color = '#888899';
+    badge.classList.add('text-bg-secondary');
     text.textContent = 'STOPPED';
   }
 }
@@ -362,59 +347,44 @@ function updateStatusBadge() {
 function renderInstanceList() {
   const el = document.getElementById('instanceList');
   const running = Object.values(instances).filter(s => s.running || s.switching);
-  if (running.length === 0) {
-    el.innerHTML = '<span class="font-11 text-secondary">—</span>';
-    return;
-  }
+  if (!running.length) { el.innerHTML = '<span class="text-secondary small">—</span>'; return; }
   el.innerHTML = '';
-  for (const s of running) {
+  running.forEach((s, i) => {
     const row = document.createElement('div');
-    row.className = 'mb-2 pb-2';
-    row.style.borderBottom = '1px solid #22223a';
-    row.innerHTML = [
-      `<div class="d-flex justify-content-between font-11 mb-1">`,
-        `<span class="text-teal">${s.model || s.alias || '—'}</span>`,
-        `<span class="font-10 text-secondary">:${s.port || '?'}</span>`,
-      `</div>`,
-      `<div class="d-flex gap-3 font-10 text-secondary">`,
-        `<span>uptime ${s.switching ? '…' : fmtUptime(s.uptime || 0)}</span>`,
-        s.metrics?.tps ? `<span>${s.metrics.tps} t/s</span>` : '',
-        s.metrics?.processing != null ? `<span>${s.metrics.processing} reqs</span>` : '',
-        `<span>pid ${s.pid || '—'}</span>`,
-      `</div>`,
-    ].join('');
+    if (i < running.length - 1) row.className = 'mb-2 pb-2 border-bottom border-secondary';
+    row.innerHTML = `
+      <div class="d-flex justify-content-between small mb-1">
+        <span class="text-success fw-semibold">${s.model || s.alias || '—'}</span>
+        <span class="text-secondary">:${s.port || '?'}</span>
+      </div>
+      <div class="d-flex gap-3 text-secondary" style="font-size:11px">
+        <span>uptime ${s.switching ? '…' : fmtUptime(s.uptime || 0)}</span>
+        ${s.metrics?.tps ? `<span>${s.metrics.tps} t/s</span>` : ''}
+        ${s.metrics?.processing != null ? `<span>${s.metrics.processing} reqs</span>` : ''}
+        <span>pid ${s.pid || '—'}</span>
+      </div>`;
     el.appendChild(row);
-  }
-  // Trim last border
-  if (el.lastChild) el.lastChild.style.borderBottom = 'none';
+  });
 }
 
 function renderReadyPanel() {
   const el = document.getElementById('readyList');
   const running = Object.values(instances).filter(s => s.running);
-  if (running.length === 0) {
-    el.innerHTML = '<span class="font-11 text-secondary">—</span>';
-    return;
-  }
+  if (!running.length) { el.innerHTML = '<span class="text-secondary small">—</span>'; return; }
   el.innerHTML = '';
-  for (const s of running) {
+  running.forEach((s, i) => {
     const cfg = models.aliases?.[s.alias] || {};
     const port = s.port;
     const div = document.createElement('div');
-    div.className = 'mb-3 pb-2';
-    div.style.borderBottom = '1px solid #22223a';
-    const lines = [
-      `<div class="mb-1 font-11 text-teal">${s.model || s.alias} <span class="font-10 text-secondary">:${port}</span></div>`,
-      `<div class="mb-1">Context: <span class="font-11">${fmtCtx(cfg.ctx || 32768)}</span></div>`,
-      `<div class="mb-1">GPU layers: <span class="font-11">${cfg.gpuLayers ?? 'auto'}</span></div>`,
-      `<div class="mb-1">Parallel: <span class="font-11">${cfg.parallel || 2}</span></div>`,
-      `<div class="mb-1">Server: <a href="http://localhost:${port}" class="text-teal text-decoration-none">localhost:${port}</a></div>`,
-      `<div>API Docs: <a href="http://localhost:${port}/docs" class="text-teal text-decoration-none">localhost:${port}/docs</a></div>`,
-    ];
-    div.innerHTML = lines.join('');
+    if (i < running.length - 1) div.className = 'mb-3 pb-2 border-bottom border-secondary';
+    div.innerHTML = '<div class="small fw-semibold text-success mb-1">' + (s.model || s.alias) + ' <span class="text-secondary">:' + port + '</span></div>'
+      + '<div class="small text-secondary">Context: <span class="text-body">' + fmtCtx(cfg.ctx || 32768) + '</span></div>'
+      + '<div class="small text-secondary">GPU layers: <span class="text-body">' + (cfg.gpuLayers ?? 'auto') + '</span></div>'
+      + '<div class="small text-secondary">Parallel: <span class="text-body">' + (cfg.parallel || 2) + '</span></div>'
+      + '<div class="small">Server: <a href="http://localhost:' + port + '" class="text-success">localhost:' + port + '</a></div>'
+      + '<div class="small">API Docs: <a href="http://localhost:' + port + '/docs" class="text-success">localhost:' + port + '/docs</a></div>';
     el.appendChild(div);
-  }
-  if (el.lastChild) el.lastChild.style.borderBottom = 'none';
+  });
 }
 
 function setBar(barId, valId, displayVal, suffix, usePctForColor, pctOverride) {
@@ -464,7 +434,7 @@ function renderModelButtons() {
   grid.innerHTML = '';
   for (const [alias, info] of Object.entries(models.aliases)) {
     const card = document.createElement('button');
-    card.className = 'model-btn model-card';
+    card.className = 'model-btn model-card btn btn-outline-secondary text-start w-100 p-2';
     card.dataset.alias = alias;
     card.onclick = () => {
       if (instances[alias]?.running) return; // no-op: already loaded
@@ -478,24 +448,18 @@ function renderModelButtons() {
     const leftCluster = document.createElement('div');
     leftCluster.className = 'd-flex align-items-center gap-1';
     const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.style.cssText = 'width:6px;height:6px;border-radius:50%;background-color:#00d4aa;display:none;flex-shrink:0';
+    dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background-color:var(--bs-success);display:none;flex-shrink:0';
     const aliasEl = document.createElement('span');
-    aliasEl.className = 'font-12 fw-semibold';
+    aliasEl.className = 'small fw-semibold';
     aliasEl.textContent = alias;
-    const hint = document.createElement('span');
-    hint.className = 'start-hint font-10 text-teal';
-    hint.style.display = 'none';
-    hint.textContent = '▶';
     leftCluster.appendChild(dot);
     leftCluster.appendChild(aliasEl);
-    leftCluster.appendChild(hint);
 
     const rightCluster = document.createElement('div');
     rightCluster.className = 'd-flex align-items-center gap-2';
     if (info.fileSize) {
       const sizeEl = document.createElement('span');
-      sizeEl.className = 'font-10 text-secondary';
+      sizeEl.className = 'text-secondary small';
       sizeEl.textContent = fmtBytes(info.fileSize);
       rightCluster.appendChild(sizeEl);
     }
@@ -505,7 +469,8 @@ function renderModelButtons() {
       hfLink.target = '_blank';
       hfLink.rel = 'noopener noreferrer';
       hfLink.title = 'Open on HuggingFace';
-      hfLink.style.cssText = 'color:#555577;text-decoration:none;line-height:1;font-size:11px';
+      hfLink.className = 'text-secondary text-decoration-none';
+      hfLink.style.fontSize = '11px';
       hfLink.textContent = '↗';
       hfLink.addEventListener('click', e => e.stopPropagation());
       rightCluster.appendChild(hfLink);
@@ -515,8 +480,9 @@ function renderModelButtons() {
     const needsSync = !info.hfRepoId || !info.arch || !info.caps;
     if (needsSync) {
       const syncBtn = document.createElement('button');
-      syncBtn.title   = info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to a HuggingFace repo to backfill metadata';
-      syncBtn.style.cssText = 'background:none;border:none;padding:0;cursor:pointer;font-size:11px;color:#555577;line-height:1';
+      syncBtn.title = info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to HuggingFace repo';
+      syncBtn.className = 'btn btn-link btn-sm text-secondary p-0';
+      syncBtn.style.fontSize = '11px';
       syncBtn.textContent = info.hfRepoId ? '↻' : '🔗 HF';
       syncBtn.addEventListener('click', async e => {
         e.stopPropagation();
@@ -537,7 +503,7 @@ function renderModelButtons() {
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error || 'backfill failed');
-          fetchModels();
+          loadModels();
         } catch (err) {
           alert(`HF backfill failed: ${err.message}`);
           syncBtn.disabled = false;
@@ -552,15 +518,15 @@ function renderModelButtons() {
 
     // ── model name
     const nameEl = document.createElement('div');
-    nameEl.className = 'font-10 text-secondary mb-1';
-    nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    nameEl.className = 'text-secondary mb-1';
+    nameEl.style.cssText = 'font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     nameEl.title = info.name;
     nameEl.textContent = info.name;
 
     // ── params row: ctx · slots · arch
     const paramEl = document.createElement('div');
-    paramEl.className = 'font-10 mb-1';
-    paramEl.style.color = '#555577';
+    paramEl.className = 'text-secondary mb-1';
+    paramEl.style.fontSize = '11px';
     const parts = [`ctx ${fmtCtx(info.ctx || 32768)}`, `${info.parallel || 2} slots`];
     if (info.arch) parts.push(info.arch);
     if (info.pipeline) parts.push(info.pipeline.replace('text-generation', 'text-gen').replace(/-/g, ' '));
@@ -568,9 +534,9 @@ function renderModelButtons() {
 
     // ── per-card stop button (shown when running)
     const stopBtn = document.createElement('button');
-    stopBtn.className = 'card-stop-btn font-10';
+    stopBtn.className = 'card-stop-btn btn btn-sm btn-outline-danger w-100 mt-1 py-0';
+    stopBtn.style.cssText = 'display:none;font-size:11px';
     stopBtn.title = `Stop ${alias}`;
-    stopBtn.style.cssText = 'display:none;background:none;border:1px solid #553333;border-radius:3px;color:#ff6b6b;cursor:pointer;padding:1px 5px;margin-top:4px;width:100%';
     stopBtn.textContent = '■ stop';
     stopBtn.addEventListener('click', async e => {
       e.stopPropagation();
@@ -587,13 +553,13 @@ function renderModelButtons() {
 
     // ── autoload toggle row
     const autoRow = document.createElement('div');
-    autoRow.style.cssText = 'display:flex;align-items:center;gap:5px;margin-top:5px';
+    autoRow.className = 'd-flex align-items-center gap-1 mt-1';
+    autoRow.style.fontSize = '11px';
     autoRow.addEventListener('click', e => e.stopPropagation());
     const chk = document.createElement('input');
-    chk.type = 'checkbox';
-    chk.id = `autoload-${alias}`;
-    chk.checked = !!info.autoLoad;
-    chk.style.cssText = 'accent-color:#00d4aa;cursor:pointer;width:11px;height:11px';
+    chk.type = 'checkbox'; chk.id = `autoload-${alias}`;
+    chk.className = 'form-check-input mt-0'; chk.checked = !!info.autoLoad;
+    chk.style.cssText = 'width:11px;height:11px;cursor:pointer';
     chk.addEventListener('change', async () => {
       try {
         const r = await fetch('/api/models/set-autoload', {
@@ -601,18 +567,17 @@ function renderModelButtons() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ alias, autoLoad: chk.checked }),
         });
-        if (!r.ok) { chk.checked = !chk.checked; }
+        if (!r.ok) chk.checked = !chk.checked;
       } catch { chk.checked = !chk.checked; }
     });
     const chkLabel = document.createElement('label');
     chkLabel.htmlFor = `autoload-${alias}`;
-    chkLabel.className = 'font-10';
-    chkLabel.style.cssText = 'color:#555577;cursor:pointer;margin:0';
+    chkLabel.className = 'text-secondary mb-0';
+    chkLabel.style.cssText = 'cursor:pointer;font-size:11px';
     chkLabel.textContent = 'autoload';
     autoRow.appendChild(chk);
     autoRow.appendChild(chkLabel);
 
-    // ── capability badges
     card.appendChild(topRow);
     card.appendChild(nameEl);
     card.appendChild(paramEl);
@@ -620,11 +585,11 @@ function renderModelButtons() {
     card.appendChild(stopBtn);
     if (info.caps && info.caps.length) {
       const capRow = document.createElement('div');
-      capRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin-top:3px';
+      capRow.className = 'd-flex flex-wrap gap-1 mt-1';
       info.caps.forEach(cap => {
         const badge = document.createElement('span');
-        badge.className = 'font-10';
-        badge.style.cssText = 'background:#1c2230;color:#8ab4d4;border-radius:3px;padding:1px 4px;white-space:nowrap';
+        badge.className = 'badge text-bg-secondary';
+        badge.style.fontSize = '10px';
         badge.textContent = cap;
         capRow.appendChild(badge);
       });
@@ -645,7 +610,7 @@ function renderModelButtons() {
     extra.forEach(m => {
       const btn = document.createElement('button');
       btn.className = 'btn btn-outline-secondary btn-sm';
-      btn.innerHTML = `<span class="font-10 text-secondary">${m.name}</span>`;
+      btn.innerHTML = `<span class="small text-secondary">${m.name}</span>`;
       btn.title = m.path;
       btn.onclick = () => alert('Discovered models: add to models.json aliases to use them.');
       discGrid.appendChild(btn);
@@ -660,18 +625,13 @@ function updateModelButtonStates() {
   document.querySelectorAll('.model-btn[data-alias]').forEach(card => {
     const alias = card.dataset.alias;
     const inst = instances[alias];
-    const isRunning = inst?.running === true;
+    const isRunning  = inst?.running === true;
     const isSwitching = inst?.switching === true;
-
-    // Only disable the card that is actively loading; others stay clickable.
     card.disabled = isSwitching;
+    card.classList.toggle('border-success', isRunning);
     card.classList.toggle('active', isRunning);
-    card.classList.remove('last-active');
-
-    const dot = card.querySelector('.dot');
+    const dot = card.querySelector('span[style*="border-radius:50%"]');
     if (dot) dot.style.display = isRunning ? 'inline-block' : 'none';
-    const hint = card.querySelector('.start-hint');
-    if (hint) hint.style.display = 'none';
     const stopBtn = card.querySelector('.card-stop-btn');
     if (stopBtn) stopBtn.style.display = isRunning ? 'block' : 'none';
   });
@@ -681,11 +641,11 @@ function confirmStart(alias, name) {
   pendingAlias = alias;
   document.getElementById('confirmText').textContent = `Load "${name}"?`;
   document.getElementById('confirmBtn').onclick = doStart;
-  document.getElementById('confirmOverlay').classList.add('open');
+  _confirmModal.show();
 }
 
 async function doStart() {
-  closeConfirm();
+  _confirmModal.hide();
   if (!pendingAlias) return;
   // Optimistically mark as switching so the card disables immediately.
   instances[pendingAlias] = { ...(instances[pendingAlias] || {}), switching: true, alias: pendingAlias };
@@ -705,12 +665,6 @@ async function doStart() {
   }
   pendingAlias = null;
 }
-
-function closeConfirm() {
-  document.getElementById('confirmOverlay').classList.remove('open');
-}
-
-
 
 function fmtUptime(s) {
   if (s < 60) return `${s}s`;
@@ -750,13 +704,13 @@ function onHFInput(e) {
 
 async function doHFSearch(q) {
   const container = document.getElementById('hfResults');
-  container.innerHTML = '<div class="font-11 text-secondary py-1">Searching…</div>';
+  container.innerHTML = '<div class="small text-secondary py-1">Searching…</div>';
   try {
     const r = await fetch(`/api/hf/search?q=${encodeURIComponent(q)}`);
     const data = await r.json();
     renderHFResults(data.models || []);
   } catch {
-    container.innerHTML = '<div class="font-11" style="color:#ff4757">Search failed</div>';
+    container.innerHTML = '<div class="small text-danger">Search failed</div>';
   }
 }
 
@@ -764,7 +718,7 @@ function renderHFResults(hfModels) {
   const container = document.getElementById('hfResults');
   container.innerHTML = '';
   if (!hfModels.length) {
-    container.innerHTML = '<div class="font-11 text-secondary py-1">No results</div>';
+    container.innerHTML = '<div class="small text-secondary py-1">No results</div>';
     return;
   }
   hfModels.forEach(m => {
@@ -782,14 +736,13 @@ function renderHFResults(hfModels) {
     const nameBlock = document.createElement('div');
     nameBlock.style.minWidth = '0';
     const authorEl = document.createElement('div');
-    authorEl.className = 'font-10';
-    authorEl.style.color = '#666677';
+    authorEl.className = 'text-secondary';
+    authorEl.style.fontSize = '10px';
     authorEl.textContent = author;
-    // repo name + external link side by side
     const nameRow = document.createElement('div');
-    nameRow.style.cssText = 'display:flex;align-items:center;gap:5px';
+    nameRow.className = 'd-flex align-items-center gap-1';
     const nameEl = document.createElement('div');
-    nameEl.className = 'text-teal fw-semibold';
+    nameEl.className = 'text-success fw-semibold';
     nameEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px';
     nameEl.title = m.id;
     nameEl.textContent = repoName || m.id;
@@ -798,7 +751,8 @@ function renderHFResults(hfModels) {
     hfLink.target = '_blank';
     hfLink.rel = 'noopener noreferrer';
     hfLink.title = 'Open on HuggingFace';
-    hfLink.style.cssText = 'color:#555577;text-decoration:none;flex-shrink:0;line-height:1';
+    hfLink.className = 'text-secondary text-decoration-none';
+    hfLink.style.cssText = 'flex-shrink:0;line-height:1';
     hfLink.textContent = '↗';
     hfLink.addEventListener('click', e => e.stopPropagation());
     nameRow.appendChild(nameEl);
@@ -810,44 +764,30 @@ function renderHFResults(hfModels) {
     statsBlock.className = 'd-flex flex-column align-items-end gap-1';
     statsBlock.style.flexShrink = '0';
     const dlLikeEl = document.createElement('div');
-    dlLikeEl.className = 'font-10';
-    dlLikeEl.style.color = '#888899';
+    dlLikeEl.className = 'text-secondary';
+    dlLikeEl.style.fontSize = '10px';
     dlLikeEl.textContent = `↓ ${fmtNum(m.downloads ?? 0)}  ♥ ${fmtNum(m.likes ?? 0)}`;
     statsBlock.appendChild(dlLikeEl);
     if (m.totalGgufBytes) {
       const sizeEl = document.createElement('div');
-      sizeEl.className = 'font-10 fw-semibold';
-      sizeEl.style.color = '#00d4aa';
+      sizeEl.className = 'text-success fw-semibold';
+      sizeEl.style.fontSize = '10px';
       sizeEl.textContent = fmtBytes(m.totalGgufBytes) + ' total';
       statsBlock.appendChild(sizeEl);
     }
 
     // ── tag row: arch + pipeline + age ────────────────────────────────
     const tagRow = document.createElement('div');
-    tagRow.className = 'd-flex gap-1 flex-wrap';
-    tagRow.style.marginTop = '4px';
-    if (m.arch) tagRow.appendChild(hfBadge(m.arch, '#2a3a4a', '#4dabce'));
-    if (m.pipeline) {
-      const pLabel = m.pipeline.replace(/-/g, ' ').replace('text generation', 'text-gen');
-      tagRow.appendChild(hfBadge(pLabel, '#2a2a35', '#888899'));
-    }
-    if (m.lastModified) {
-      tagRow.appendChild(hfBadge('updated ' + fmtAge(m.lastModified), '#1e1e24', '#666677'));
-    }
+    tagRow.className = 'd-flex gap-1 flex-wrap mt-1';
+    if (m.arch) tagRow.appendChild(hfBadge(m.arch, 'info'));
+    if (m.pipeline) tagRow.appendChild(hfBadge(m.pipeline.replace(/-/g, ' ').replace('text generation', 'text-gen'), 'secondary'));
+    if (m.lastModified) tagRow.appendChild(hfBadge('updated ' + fmtAge(m.lastModified), 'secondary'));
     if (m.quantVariants && m.quantVariants.length) {
-      // Show up to 4 quant pills
-      m.quantVariants.slice(0, 4).forEach(q =>
-        tagRow.appendChild(hfBadge(q, '#1a1a22', quantColor(q)))
-      );
-      if (m.quantVariants.length > 4)
-        tagRow.appendChild(hfBadge(`+${m.quantVariants.length - 4}`, '#1a1a22', '#555577'));
+      m.quantVariants.slice(0, 4).forEach(q => tagRow.appendChild(hfQuantBadge(q)));
+      if (m.quantVariants.length > 4) tagRow.appendChild(hfBadge(`+${m.quantVariants.length - 4}`, 'secondary'));
     }
     if (m.caps && m.caps.length) {
-      const capRow = document.createElement('div');
-      capRow.className = 'd-flex gap-1 flex-wrap';
-      capRow.style.marginTop = '3px';
-      m.caps.forEach(cap => capRow.appendChild(hfBadge(cap, '#1c2230', '#8ab4d4')));
-      card.appendChild(capRow);
+      m.caps.forEach(cap => tagRow.appendChild(hfBadge(cap, 'primary')));
     }
 
     const fileList = document.createElement('div');
@@ -860,13 +800,13 @@ function renderHFResults(hfModels) {
       fileList.style.display = open ? 'none' : 'block';
       if (!open && !loaded) {
         loaded = true;
-        fileList.innerHTML = '<div class="font-10 text-secondary">Loading files…</div>';
+        fileList.innerHTML = '<div class="small text-secondary">Loading files…</div>';
         try {
           const r = await fetch(`/api/hf/files?repo=${encodeURIComponent(m.id)}`);
           const data = await r.json();
           renderHFFileList(fileList, m.id, data.files || [], m);
         } catch {
-          fileList.innerHTML = '<div class="font-10" style="color:#ff4757">Failed to load files</div>';
+          fileList.innerHTML = '<div class="small text-danger">Failed to load files</div>';
         }
       }
     });
@@ -878,11 +818,19 @@ function renderHFResults(hfModels) {
   });
 }
 
-function hfBadge(text, bg, color) {
+function hfBadge(text, variant) {
   const s = document.createElement('span');
-  s.className = 'font-10';
-  s.style.cssText = `background:${bg};color:${color};border-radius:3px;padding:1px 5px;white-space:nowrap`;
+  s.className = `badge text-bg-${variant}`;
+  s.style.fontSize = '10px';
   s.textContent = text;
+  return s;
+}
+
+function hfQuantBadge(q) {
+  const s = document.createElement('span');
+  s.className = 'badge';
+  s.style.cssText = `font-size:10px;background-color:#1a2030;color:${quantColor(q)}`;
+  s.textContent = q;
   return s;
 }
 
@@ -898,32 +846,28 @@ function fmtAge(iso) {
 
 // Quant quality tier → color
 const QUANT_COLORS = {
-  F32:'#aaaacc', BF16:'#aaaacc', F16:'#aaaacc',
+  F32:'#adb5bd', BF16:'#adb5bd', F16:'#adb5bd',
   Q8_0:'#4dabce', Q6_K:'#4dabce',
-  Q5_K_M:'#00d4aa', Q5_K_S:'#00d4aa', Q5_0:'#00d4aa', Q5_1:'#00d4aa',
+  Q5_K_M:'#20c997', Q5_K_S:'#20c997', Q5_0:'#20c997', Q5_1:'#20c997',
   Q4_K_M:'#7ecb7e', Q4_K_S:'#7ecb7e', Q4_0:'#7ecb7e', Q4_1:'#7ecb7e',
-  Q3_K_M:'#ffa502', Q3_K_S:'#ffa502', Q3_K_L:'#ffa502',
-  Q2_K:'#ff6b6b',
+  Q3_K_M:'#fd7e14', Q3_K_S:'#fd7e14', Q3_K_L:'#fd7e14',
+  Q2_K:'#dc3545',
 };
 function quantColor(q) {
-  if (!q) return '#555577';
+  if (!q) return '#6c757d';
   if (QUANT_COLORS[q]) return QUANT_COLORS[q];
   if (q.startsWith('IQ')) return '#c084fc';
-  if (q.startsWith('Q8')) return '#4dabce';
-  if (q.startsWith('Q6')) return '#4dabce';
-  if (q.startsWith('Q5')) return '#00d4aa';
+  if (q.startsWith('Q8') || q.startsWith('Q6')) return '#4dabce';
+  if (q.startsWith('Q5')) return '#20c997';
   if (q.startsWith('Q4')) return '#7ecb7e';
-  if (q.startsWith('Q3')) return '#ffa502';
-  if (q.startsWith('Q2')) return '#ff6b6b';
-  return '#888899';
+  if (q.startsWith('Q3')) return '#fd7e14';
+  if (q.startsWith('Q2')) return '#dc3545';
+  return '#6c757d';
 }
 
 function renderHFFileList(container, repoId, files, cardMeta = {}) {
   container.innerHTML = '';
-  if (!files.length) {
-    container.innerHTML = '<div class="font-10 text-secondary">No GGUF files found</div>';
-    return;
-  }
+  if (!files.length) { container.innerHTML = '<div class="small text-secondary">No GGUF files found</div>'; return; }
   // Sort: shards first (skipping shards 2+), then by name
   const visible = files.filter(f => {
     const m = f.name.match(/-([0-9]{5})-of-([0-9]{5})\.gguf$/);
@@ -939,27 +883,21 @@ function renderHFFileList(container, repoId, files, cardMeta = {}) {
     const left = document.createElement('div');
     left.style.cssText = 'min-width:0;flex:1;display:flex;align-items:center;gap:6px';
 
-    // quant badge
     const qBadge = document.createElement('span');
-    qBadge.className = 'font-10';
-    qBadge.style.cssText = `color:${quantColor(f.quant)};font-weight:600;flex-shrink:0;min-width:52px`;
+    qBadge.style.cssText = `color:${quantColor(f.quant)};font-weight:600;flex-shrink:0;min-width:52px;font-size:11px`;
     qBadge.textContent = f.quant || '—';
 
-    // filename (dimmed, truncated)
     const nameEl = document.createElement('span');
-    nameEl.style.cssText = 'color:#555577;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
-    // Show just the unique part — strip the common repo prefix from the name
-    const shortName = f.name.replace(/^.*\//, '');
-    nameEl.textContent = shortName;
+    nameEl.style.cssText = 'color:#6c757d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+    nameEl.textContent = f.name.replace(/^.*\//, '');
     nameEl.title = f.name;
+    left.appendChild(qBadge); left.appendChild(nameEl);
     if (isShard) {
       const shardTag = document.createElement('span');
-      shardTag.className = 'font-10';
-      shardTag.style.cssText = 'color:#666677;flex-shrink:0';
+      shardTag.className = 'text-secondary';
+      shardTag.style.fontSize = '10px';
       shardTag.textContent = '(sharded)';
-      left.appendChild(qBadge); left.appendChild(nameEl); left.appendChild(shardTag);
-    } else {
-      left.appendChild(qBadge); left.appendChild(nameEl);
+      left.appendChild(shardTag);
     }
 
     const right = document.createElement('div');
@@ -968,14 +906,15 @@ function renderHFFileList(container, repoId, files, cardMeta = {}) {
 
     if (f.size) {
       const sizeEl = document.createElement('span');
-      sizeEl.className = 'font-10';
-      sizeEl.style.color = '#666677';
+      sizeEl.className = 'text-secondary';
+      sizeEl.style.fontSize = '10px';
       sizeEl.textContent = fmtBytes(f.size);
       right.appendChild(sizeEl);
     }
 
     const btn = document.createElement('button');
-    btn.className = 'btn btn-outline-secondary btn-sm py-0 px-2 font-10';
+    btn.className = 'btn btn-outline-secondary btn-sm py-0 px-2';
+    btn.style.fontSize = '10px';
     btn.textContent = 'Pull';
     btn.addEventListener('click', () => pullHFFile(repoId, f.name, row, btn, { ...cardMeta, hfRepoId: repoId, hfFilename: f.name, fileSize: f.size }));
     right.appendChild(btn);
@@ -1016,16 +955,12 @@ function addHFDownloadRow(key, repoId, filename) {
   wrap.id = 'hfdl-' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
 
   const topRow = document.createElement('div');
-  topRow.className = 'd-flex justify-content-between font-10 mb-1';
+  topRow.className = 'd-flex justify-content-between small mb-1';
   const nameEl = document.createElement('span');
-  nameEl.className = 'text-secondary';
-  nameEl.style.overflow = 'hidden';
-  nameEl.style.textOverflow = 'ellipsis';
-  nameEl.style.whiteSpace = 'nowrap';
+  nameEl.className = 'text-secondary text-truncate';
   nameEl.textContent = filename;
   const labelEl = document.createElement('span');
-  labelEl.className = 'text-teal';
-  labelEl.style.flexShrink = '0';
+  labelEl.className = 'text-success flex-shrink-0';
   labelEl.textContent = '0%';
   topRow.appendChild(nameEl);
   topRow.appendChild(labelEl);
@@ -1074,7 +1009,7 @@ function onHFError(key, errMsg) {
     el.barEl.className = 'progress-bar bg-danger';
     el.barEl.style.width = '100%';
     el.labelEl.textContent = '✗ ' + errMsg;
-    el.labelEl.style.color = '#ff4757';
+    el.labelEl.className = 'text-danger flex-shrink-0';
     setTimeout(() => { el.wrap.remove(); hfProgressEls.delete(key); }, 10000);
   }
 }
