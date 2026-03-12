@@ -34,7 +34,7 @@
     "qwen3-5-35b-a3b-q4-k": {
       "name": "Qwen3.5-35B-Q4",
       "model": "/home/pmcdavid/models/unsloth--Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf",
-      "ctx": 65536,
+      "ctx": 131072,
       "parallel": 2,
       "hfRepoId": "unsloth/Qwen3.5-35B-A3B-GGUF",
       "hfFilename": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
@@ -51,12 +51,13 @@
       "pipeline": "image-text-to-text",
       "hfLikes": 618,
       "hfDownloads": 1295827,
-      "hfLastModified": "2026-03-05T17:25:50.000Z"
+      "hfLastModified": "2026-03-05T17:25:50.000Z",
+      "ubatchSize": 512
     },
     "qwen3-coder-next-q4": {
       "name": "Qwen3-Coder-Next Q4",
       "model": "/home/pmcdavid/models/unsloth--Qwen3-Coder-Next-GGUF/Qwen3-Coder-Next-Q4_K_M.gguf",
-      "ctx": 32768,
+      "ctx": 262144,
       "parallel": 2,
       "hfRepoId": "unsloth/Qwen3-Coder-Next-GGUF",
       "hfFilename": "Qwen3-Coder-Next-Q4_K_M.gguf",
