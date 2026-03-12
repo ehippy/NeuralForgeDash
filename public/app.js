@@ -109,6 +109,12 @@ function updateGpu(g) {
     ? (parseFloat(g.diskUsedGB) / parseFloat(g.diskTotalGB)) * 100 : 0;
   setBar('diskBar', 'diskVal', g.diskUsedGB, ' GB', false, diskPct);
   drawFavicon(g.busyPct, gttPct);
+  // Expose GTT numbers to Alpine for estimated-fit calculations
+  const nfStore = window.Alpine?.store('nf');
+  if (nfStore) {
+    nfStore.gttTotalGB = parseFloat(g.gttTotalGB) || 0;
+    nfStore.gttUsedGB  = parseFloat(g.gttUsedGB)  || 0;
+  }
 }
 
 // ── Log rendering ─────────────────────────────────────────────────────────────
@@ -162,6 +168,31 @@ document.addEventListener('alpine:init', () => {
     _uptimeTimers: new Map(),
     hfModal: { open: false, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false },
     hfDownloads: {},   // key -> { key, repoId, filename, bytes, total, done, error }
+    gttTotalGB: 0,
+    gttUsedGB: 0,
+
+    estimateGTT(info) {
+      const ctx = info.ctx || 32768;
+      const parallel = info.parallel || 2;
+      // bytes per element per quant type (for a single cache element)
+      const bpe = { f16: 2, q8_0: 1, q5_0: 0.625, q4_0: 0.5 };
+      const kB = bpe[info.cacheTypeK] ?? 1;
+      const vB = bpe[info.cacheTypeV] ?? 1;
+      const m = info.ggufMeta;
+      let kvGB;
+      if (m && m['llm.block_count'] && m['llm.attention.head_count_kv'] && m['llm.attention.key_length']) {
+        const nL = m['llm.block_count'];
+        const nH = m['llm.attention.head_count_kv'];
+        const dK = m['llm.attention.key_length'];
+        const dV = m['llm.attention.value_length'] || dK;
+        kvGB = nL * nH * (dK * kB + dV * vB) * ctx * parallel / 1e9;
+      } else {
+        // fallback: ~200KB/token at q8_0, scaled by quant
+        kvGB = 200000 * ((kB + vB) / 2) * ctx * parallel / 1e9;
+      }
+      const weightsGB = info.fileSize ? info.fileSize / 1e9 : 0;
+      return { weightsGB, kvGB, totalGB: weightsGB + kvGB };
+    },
     editModal: { open: false, alias: null, name: '', ctx: 32768, parallel: 2, saving: false, error: null },
 
     get runningList() {

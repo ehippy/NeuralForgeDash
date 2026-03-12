@@ -15,7 +15,7 @@
     "cacheTypeV": "q8_0"
   },
   "aliases": {
-    "coder": {
+    "Qwen3-Coder-Next-Q8": {
       "name": "Qwen3-Coder-Next Q8",
       "model": "~/models/Qwen3-Coder-Next/Q8_0/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf",
       "ctx": 131072,
@@ -57,7 +57,9 @@
       "batchSize": 2048,
       "flashAttn": true,
       "cacheTypeK": "q8_0",
-      "cacheTypeV": "q8_0"
+      "cacheTypeV": "q8_0",
+      "ubatchSize": 512,
+      "enableThinking": false
     }
   }
 }

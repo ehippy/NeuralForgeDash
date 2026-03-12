@@ -3,9 +3,66 @@ import { readFileSync, existsSync, createWriteStream, writeFileSync } from 'fs';
 import { spawn, exec } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { readFile, readdir, stat, mkdir, rename, unlink, statfs } from 'fs/promises';
+import { readFile, readdir, stat, mkdir, rename, unlink, statfs, open } from 'fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// ── GGUF metadata parser ──────────────────────────────────────────────────────
+const ggufMetaCache = new Map(); // path → { mtime, meta }
+
+function ggufU64(buf, off) {
+  return buf.readUInt32LE(off + 4) * 0x100000000 + buf.readUInt32LE(off);
+}
+
+async function readGGUFMeta(filepath) {
+  try {
+    const { mtimeMs } = await stat(filepath);
+    const cached = ggufMetaCache.get(filepath);
+    if (cached && cached.mtime === mtimeMs) return cached.meta;
+
+    const WANT = new Set(['llm.block_count','llm.attention.head_count_kv',
+      'llm.attention.key_length','llm.attention.value_length']);
+    const fh = await open(filepath, 'r');
+    const buf = Buffer.alloc(131072);
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    await fh.close();
+
+    if (bytesRead < 24 || buf.toString('utf8', 0, 4) !== 'GGUF') return null;
+    const nKv = ggufU64(buf, 16);
+    let off = 24;
+    const result = {};
+
+    for (let i = 0; i < nKv && off < bytesRead - 8; i++) {
+      const kl = ggufU64(buf, off); off += 8;
+      if (kl > 256 || off + kl > bytesRead) break;
+      const key = buf.toString('utf8', off, off + kl); off += kl;
+      if (off + 4 > bytesRead) break;
+      const vt = buf.readUInt32LE(off); off += 4;
+      let skip = 0;
+      if      (vt === 4 || vt === 5)  { if (WANT.has(key)) result[key] = buf.readUInt32LE(off); skip = 4; }
+      else if (vt === 0 || vt === 1 || vt === 7) { skip = 1; }
+      else if (vt === 2 || vt === 3)  { skip = 2; }
+      else if (vt === 6)               { skip = 4; }
+      else if (vt === 10 || vt === 11 || vt === 12) { skip = 8; }
+      else if (vt === 8) {
+        if (off + 8 > bytesRead) break;
+        const sl = ggufU64(buf, off); skip = 8 + sl;
+      } else if (vt === 9) {
+        if (off + 12 > bytesRead) break;
+        const at = buf.readUInt32LE(off);
+        const ac = ggufU64(buf, off + 4);
+        const es = [1,1,2,2,4,4,4,1,0,0,8,8,8][at];
+        if (!es) break;
+        skip = 12 + ac * es;
+      } else break;
+      off += skip;
+      if (Object.keys(result).length === WANT.size) break;
+    }
+    const meta = Object.keys(result).length ? result : null;
+    ggufMetaCache.set(filepath, { mtime: mtimeMs, meta });
+    return meta;
+  } catch { return null; }
+}
 
 async function killOrphans() {
   try {
@@ -642,7 +699,14 @@ const server = createServer(async (req, res) => {
               fileSize = (await stat(p)).size;
             }
           } catch {}
-          return [alias, { ...info, fileSize }];
+          // Read GGUF architecture metadata for GTT estimation
+          let ggufMeta = null;
+          try {
+            const sm2 = p.match(/^(.+)-\d{5}-of-(\d{5})\.gguf$/i);
+            const metaPath = sm2 ? `${sm2[1]}-00001-of-${sm2[2]}.gguf` : p;
+            ggufMeta = await readGGUFMeta(metaPath);
+          } catch {}
+          return [alias, { ...info, fileSize, ggufMeta }];
         })
     );
     json(res, {
@@ -903,7 +967,10 @@ const server = createServer(async (req, res) => {
       const now = Math.floor(Date.now() / 1000);
       const data = [...managers.entries()]
         .filter(([, m]) => m.status().running)
-        .map(([alias]) => ({ id: alias, object: 'model', created: now, owned_by: 'neuralforge' }));
+        .map(([alias, m]) => {
+          const name = m.modelName || alias;
+          return { id: name, object: 'model', created: now, owned_by: 'neuralforge', aliases: [alias] };
+        });
       json(res, { object: 'list', data });
       return;
     }
@@ -911,9 +978,10 @@ const server = createServer(async (req, res) => {
     // GET /v1/models/:id — single model object
     if (path.startsWith('/v1/models/') && req.method === 'GET') {
       const modelId = decodeURIComponent(path.slice('/v1/models/'.length));
-      const mgr = managers.get(modelId);
+      const mgr = resolveModel(modelId);
       if (!mgr?.status().running) { error(res, 404, `model '${modelId}' is not running`); return; }
-      json(res, { id: modelId, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: 'neuralforge' });
+      const name = mgr.modelName || modelId;
+      json(res, { id: name, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: 'neuralforge' });
       return;
     }
 
@@ -928,7 +996,7 @@ const server = createServer(async (req, res) => {
       try {
         const body = JSON.parse(bodyBuf.toString('utf8'));
         if (body.model) {
-          const mgr = managers.get(body.model);
+          const mgr = resolveModel(body.model);
           if (mgr?.status().running) targetPort = mgr.status().port;
         }
       } catch { /* non-JSON body — fall through to any-running */ }
@@ -976,6 +1044,15 @@ function error(res, code, msg) {
 }
 
 // Proxy a buffered request to a llama-server instance, preserving streaming.
+// Resolve a model id string to a LlamaManager — matches by alias first, then by display name.
+function resolveModel(id) {
+  if (managers.has(id)) return managers.get(id);
+  for (const m of managers.values()) {
+    if (m.modelName === id) return m;
+  }
+  return null;
+}
+
 function proxyToLlama(req, res, bodyBuf, port) {
   const opts = {
     hostname: '127.0.0.1',
