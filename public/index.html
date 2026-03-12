@@ -190,27 +190,27 @@
             style="padding: 1rem 1.1rem; border-color: var(--bs-secondary-border-subtle)" :data-alias="alias"
             :class="{ 'border-success active': $store.nf.instances[alias]?.running }">
 
-            <!-- header: dot + name + links -->
+            <!-- header: dot + name -->
             <div class="d-flex align-items-center gap-2 mb-1">
               <span class="run-dot" :class="{ live: $store.nf.instances[alias]?.running }"></span>
               <span class="fw-semibold" style="font-size:0.95rem" x-text="info.name || alias"></span>
-              <div class="d-flex align-items-center gap-2 ms-auto">
-                <span x-show="info.fileSize" class="text-secondary" style="font-size:0.75rem"
-                  x-text="fmtBytes(info.fileSize)"></span>
-                <a x-show="info.hfRepoId" :href="`https://huggingface.co/${info.hfRepoId}`" target="_blank"
-                  rel="noopener noreferrer" title="Open on HuggingFace" class="text-secondary text-decoration-none"
-                  style="font-size:0.75rem" @click.stop>↗</a>
-                <template x-if="!info.hfRepoId || !info.arch || !info.caps">
-                  <button :title="info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to HuggingFace repo'"
-                    class="btn btn-link btn-sm text-secondary p-0" style="font-size:0.75rem;line-height:1"
-                    x-text="info.hfRepoId ? '↻' : '🔗 HF'" @click.stop="$store.nf.syncHF(alias, info)">
-                  </button>
-                </template>
-              </div>
             </div>
 
-            <!-- alias -->
-            <div class="text-secondary mb-2" style="font-size:0.75rem;opacity:0.6" x-text="alias"></div>
+            <!-- alias + size + links -->
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="text-secondary" style="font-size:0.75rem;opacity:0.6" x-text="alias"></span>
+              <span x-show="info.fileSize" class="text-secondary ms-auto" style="font-size:0.75rem"
+                x-text="fmtBytes(info.fileSize)"></span>
+              <a x-show="info.hfRepoId" :href="`https://huggingface.co/${info.hfRepoId}`" target="_blank"
+                rel="noopener noreferrer" title="Open on HuggingFace" class="text-secondary text-decoration-none"
+                style="font-size:0.75rem" @click.stop>↗</a>
+              <template x-if="!info.hfRepoId || !info.arch || !info.caps">
+                <button :title="info.hfRepoId ? 'Re-sync HuggingFace metadata' : 'Link to HuggingFace repo'"
+                  class="btn btn-link btn-sm text-secondary p-0" style="font-size:0.75rem;line-height:1"
+                  x-text="info.hfRepoId ? '↻' : '🔗 HF'" @click.stop="$store.nf.syncHF(alias, info)">
+                </button>
+              </template>
+            </div>
 
             <!-- params -->
             <div class="text-secondary mb-3" style="font-size:0.75rem">

@@ -43,7 +43,15 @@
       "batchSize": 2048,
       "flashAttn": true,
       "cacheTypeK": "q8_0",
-      "cacheTypeV": "q8_0"
+      "cacheTypeV": "q8_0",
+      "arch": "qwen",
+      "caps": [
+        "👁 vision"
+      ],
+      "pipeline": "image-text-to-text",
+      "hfLikes": 618,
+      "hfDownloads": 1295827,
+      "hfLastModified": "2026-03-05T17:25:50.000Z"
     },
     "qwen3-coder-next-q4": {
       "name": "Qwen3-Coder-Next Q4",
@@ -59,7 +67,15 @@
       "cacheTypeK": "q8_0",
       "cacheTypeV": "q8_0",
       "ubatchSize": 512,
-      "enableThinking": false
+      "enableThinking": false,
+      "arch": "qwen",
+      "caps": [
+        "💻 code"
+      ],
+      "pipeline": "text-generation",
+      "hfLikes": 471,
+      "hfDownloads": 503691,
+      "hfLastModified": "2026-03-06T14:38:33.000Z"
     }
   }
 }
