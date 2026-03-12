@@ -168,8 +168,53 @@ document.addEventListener('alpine:init', () => {
     _uptimeTimers: new Map(),
     hfModal: { open: false, input: '', loading: false, repoId: null, files: null, error: null, selected: null, downloading: false },
     hfDownloads: {},   // key -> { key, repoId, filename, bytes, total, done, error }
+    connectModal: { open: false },
     gttTotalGB: 0,
     gttUsedGB: 0,
+
+    copyText(str) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(str);
+      }
+      const el = document.createElement('textarea');
+      el.value = str;
+      el.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      return Promise.resolve();
+    },
+
+    opencodeConfig() {
+      const aliases = this.models.aliases || {};
+      const models = {};
+      for (const [alias, info] of Object.entries(aliases)) {
+        const displayName = info.name || alias;
+        models[displayName] = {
+          name: displayName + ' (NeuralForge)',
+          limit: {
+            context: info.ctx || 32768,
+            output: Math.min(info.ctx || 32768, 32768),
+          },
+        };
+      }
+      const cfg = {
+        $schema: 'https://opencode.ai/config.json',
+        provider: {
+          neuralforge: {
+            npm: '@ai-sdk/openai-compatible',
+            name: 'NeuralForge (local)',
+            options: { baseURL: `${location.protocol}//${location.hostname}:5757/v1` },
+            models,
+          },
+        },
+      };
+      if (Object.keys(models).length > 0) {
+        cfg.model = `neuralforge/${Object.keys(models)[0]}`;
+      }
+      return JSON.stringify(cfg, null, 2);
+    },
 
     estimateGTT(info) {
       const ctx = info.ctx || 32768;
